@@ -17,6 +17,9 @@ spec:
       labels:
         {{- include "vineyard.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -41,7 +44,7 @@ spec:
           - |
             /usr/bin/wait-for-it.sh -t 60 etcd-for-vineyard.{{ .Release.Namespace }}.svc.cluster.local:2379;
             sleep 1;
-            /usr/bin/vineyardd \
+            /usr/local/bin/vineyardd \
           {{- if .Values.vineyard.sharedMemorySize }}
               --size \
               {{ .Values.vineyard.sharedMemorySize }} \
