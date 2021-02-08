@@ -268,6 +268,13 @@ class IMetaService {
                   std::vector<op_t> ops;
                   auto s = callback_after_ready(status, meta, delete_set, ops);
                   if (s.ok()) {
+                    if (ops.empty()) {
+                      unsigned rev_after_unlock = 0;
+                      if (lock->Release(rev_after_unlock).ok()) {
+                        rev_ = rev_after_unlock;
+                      }
+                      return callback_after_finish(Status::OK());
+                    }
                     // apply changes locally before committing to etcd
                     this->metaUpdate(ops, true);
                     // commit to etcd

@@ -96,12 +96,23 @@ void EtcdMetaService::requestLock(
         auto status =
             Status::EtcdError(resp.error_code(), resp.error_message());
         LOG(INFO) << "unlock: " << status.ToString();
-        boost::asio::post(server_ptr_->GetIOContext(),
-                          boost::bind(callback_after_locked, Status::OK(), lock_ptr));
+        boost::asio::post(
+            server_ptr_->GetIOContext(),
+            boost::bind(callback_after_locked, Status::OK(), lock_ptr));
       });
 }
 
 void EtcdMetaService::commitUpdates(
+    const std::vector<op_t>& changes,
+    callback_t<unsigned> callback_after_updated) {
+  if (txn_nofail_) {
+    this->commitUpdatesWithRetry(changes, callback_after_updated);
+  } else {
+    this->commitUpdatesWithoutRetry(changes, callback_after_updated);
+  }
+}
+
+void EtcdMetaService::commitUpdatesWithoutRetry(
     const std::vector<op_t>& changes,
     callback_t<unsigned> callback_after_updated) {
   // Split to many small txns to conform the requirement of max-txn-ops
@@ -112,7 +123,8 @@ void EtcdMetaService::commitUpdates(
   size_t offset = 0;
   while (offset + 127 < changes.size()) {
     etcdv3::Transaction tx;
-    for (size_t idx = offset; idx < offset + 127; ++idx) {
+    for (size_t idx = offset; idx < offset + 127 && idx < changes.size();
+         ++idx) {
       auto const& op = changes[idx];
       if (op.op == op_t::kPut) {
         tx.setup_put(prefix_ + op.kv.key, op.kv.value);
@@ -151,6 +163,46 @@ void EtcdMetaService::commitUpdates(
         server_ptr_->GetIOContext(),
         boost::bind(callback_after_updated, status, resp.index()));
   });
+}
+
+void EtcdMetaService::commitUpdatesWithRetry(
+    const std::vector<op_t>& changes,
+    callback_t<unsigned> callback_after_updated) {
+  // Split to many small txns to conform the requirement of max-txn-ops
+  // limitation (128) from etcd.
+  //
+  // All txns are performed in synchronized fashion and will be automatically
+  // retried until succeed.
+  size_t offset = 0;
+  unsigned resp_index = -1;
+  while (offset < changes.size()) {
+    etcdv3::Transaction tx;
+    for (size_t idx = offset; idx < offset + 127 && idx < changes.size();
+         ++idx) {
+      auto const& op = changes[idx];
+      if (op.op == op_t::kPut) {
+        tx.setup_put(prefix_ + op.kv.key, op.kv.value);
+      } else if (op.op == op_t::kDel) {
+        tx.setup_delete(prefix_ + op.kv.key);
+      }
+    }
+    while (true) {
+      auto resp = etcd_->txn(tx).get();
+      if (resp.is_ok()) {
+        offset += 127;
+        resp_index = resp.index();
+        VLOG(10) << "etcd txn use " << resp.duration().count()
+                 << " microseconds";
+        break;
+      } else {
+        LOG(ERROR) << "etcd txn failed, and will be retried: "
+                   << resp.error_message();
+      }
+    }
+  }
+  boost::asio::post(
+      server_ptr_->GetIOContext(),
+      boost::bind(callback_after_updated, Status::OK(), resp_index));
 }
 
 void EtcdMetaService::requestAll(
