@@ -68,7 +68,8 @@ void EtcdWatchHandler::operator()(etcd::Response const& resp) {
     }
   }
   auto status = Status::EtcdError(resp.error_code(), resp.error_message());
-  asio::post(ctx_, boost::bind(callback_, status, ops, resp.index()));
+  LOG(INFO) << "watch hanlder: " << status.ToString();
+  asio::post(ctx_, boost::bind(callback_, Status::OK(), ops, resp.index()));
 }
 
 void EtcdMetaService::requestLock(
@@ -94,8 +95,9 @@ void EtcdMetaService::requestLock(
             resp.index());
         auto status =
             Status::EtcdError(resp.error_code(), resp.error_message());
+        LOG(INFO) << "unlock: " << status.ToString();
         boost::asio::post(server_ptr_->GetIOContext(),
-                          boost::bind(callback_after_locked, status, lock_ptr));
+                          boost::bind(callback_after_locked, Status::OK(), lock_ptr));
       });
 }
 
@@ -144,6 +146,7 @@ void EtcdMetaService::commitUpdates(
     VLOG(10) << "etcd (last) txn use " << resp.duration().count()
              << " microseconds";
     auto status = Status::EtcdError(resp.error_code(), resp.error_message());
+    LOG(INFO) << "txn: " << status.ToString();
     boost::asio::post(
         server_ptr_->GetIOContext(),
         boost::bind(callback_after_updated, status, resp.index()));
@@ -175,6 +178,7 @@ void EtcdMetaService::requestAll(
         }
         auto status =
             Status::EtcdError(resp.error_code(), resp.error_message());
+        LOG(INFO) << "etcd fetch all: " << status.ToString();
         boost::asio::post(server_ptr_->GetIOContext(),
                           boost::bind(callback, status, ops, resp.index()));
       });
