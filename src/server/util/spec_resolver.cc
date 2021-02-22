@@ -28,6 +28,7 @@ DEFINE_string(etcd_prefix, "vineyard", "path prefix in etcd");
 DEFINE_string(etcd_cmd, "", "path of etcd executable");
 DEFINE_int32(etcd_lock_ttl, 60, "TTL for lease when create a lock on etcd");
 DEFINE_bool(etcd_txn_nofail, true, "Whether to retry when txn fails");
+DEFINE_bool(print_etcd_traffic, false, "Log etcd traffics using glog");
 // share memory
 DEFINE_string(size, "256Mi",
               "shared memory size for vineyardd, the format could be 1024M, "
@@ -71,6 +72,7 @@ json EtcdSpecResolver::resolve() const {
   spec["etcd_cmd"] = FLAGS_etcd_cmd;
   spec["etcd_lock_ttl"] = FLAGS_etcd_lock_ttl;
   spec["etcd_txn_nofail"] = FLAGS_etcd_txn_nofail;
+  spec["print_etcd_traffic"] = FLAGS_print_etcd_traffic;
   return spec;
 }
 

@@ -75,6 +75,9 @@ void EtcdWatchHandler::operator()(etcd::Response const& resp) {
 void EtcdMetaService::requestLock(
     std::string lock_name,
     callback_t<std::shared_ptr<ILock>> callback_after_locked) {
+  if (print_etcd_traffic_) {
+    LOG(INFO) << "etcd lock " << (prefix_ + lock_name);
+  }
   etcd_->lock(prefix_ + lock_name, lock_lease_ttl_)
       .then([this, callback_after_locked](
                 pplx::task<etcd::Response> const& resp_task) {
@@ -120,6 +123,9 @@ void EtcdMetaService::commitUpdatesWithoutRetry(
   //
   // The first n segments will be performed synchronously while the last
   // txn will still be executed in a asynchronous manner.
+  if (print_etcd_traffic_) {
+    LOG(INFO) << "etcd txn";
+  }
   size_t offset = 0;
   while (offset + 127 < changes.size()) {
     etcdv3::Transaction tx;
@@ -127,8 +133,14 @@ void EtcdMetaService::commitUpdatesWithoutRetry(
          ++idx) {
       auto const& op = changes[idx];
       if (op.op == op_t::kPut) {
+        if (print_etcd_traffic_) {
+          LOG(INFO) << "    put " << op.kv.key << " " << op.kv.value;
+        }
         tx.setup_put(prefix_ + op.kv.key, op.kv.value);
       } else if (op.op == op_t::kDel) {
+        if (print_etcd_traffic_) {
+          LOG(INFO) << "    del " << op.kv.key;
+        }
         tx.setup_delete(prefix_ + op.kv.key);
       }
     }
@@ -208,6 +220,9 @@ void EtcdMetaService::commitUpdatesWithRetry(
 void EtcdMetaService::requestAll(
     const std::string& prefix, unsigned base_rev,
     callback_t<const std::vector<IMetaService::op_t>&, unsigned> callback) {
+  if (print_etcd_traffic_) {
+    LOG(INFO) << "etcd get --prefix '" << (prefix_ + prefix) << "'";
+  }
   etcd_->ls(prefix_ + prefix)
       .then([this, callback](pplx::task<etcd::Response> resp_task) {
         auto resp = resp_task.get();
