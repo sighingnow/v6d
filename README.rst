@@ -9,148 +9,126 @@
 
 |Build and Test| |Coverage| |Docs| |Artifact HUB|
 
-Vineyard is an in-memory immutable data manager
-that provides **out-of-the-box high-level** abstraction and **zero-copy in-memory** sharing for
-distributed data in big data tasks, such as graph analytics (e.g., `GraphScope`_), numerical
-computing (e.g., `Mars`_), and machine learning.
+Vineyard is a distributed in-memory data manager for big data tasks.
 
-Vineyard is designed to enable zero-copy data sharing between big data systems.
-Let's begin with a typical machine learning task of `time series prediction with LSTM`_.
-We can see that the task is divided into steps of works:
-First, we read the data from the file system as a ``pandas.DataFrame``.
-Then, we apply some preprocessing jobs, such as eliminating null values to the dataframe.
-After that, we define the model, and train the model on the processed dataframe
-in PyTorch.
-Finally, the performance of the model is evaluated.
+Conceptual Overview
+-------------------
 
-On a single machine, although pandas and PyTorch are two different systems targeting different tasks,
-data can be shared between them efficiently with little extra-cost, with everything happening end-to-end in a single python script.
+Vineyard builds on Kubernetes as a system for deploying and scaling, and
+managing distributed shared data for dedicated engines in big data pipelines,
+as shown in the following diagram:
 
-.. image:: https://v6d.io/_static/vineyard_compare.png
-   :alt: Comparing the workflow with and without vineyard
+.. image:: https://v6d.io/_static/vineyard_k8s_arch.png
+   :alt: Vineyard architecture
 
-What if the input data is too big to be processed on a single machine?
-As illustrated on the left side of the figure, a common practice is to store the data as tables on a distributed file system (e.g., HDFS), and replace ``pandas`` with ETL processes using SQL over a big data system such as Hive and Spark. To share the data with PyTorch, the intermediate results are typically saved back as tables on HDFS. This can bring some headaches to developers.
+Introducing the typical big data pipeline
+-----------------------------------------
 
-1. For the same task, users are forced to program for multiple systems (SQL & Python).
+.. image:: https://v6d.io/_static/vineyard_k8s_pipeline.png
+   :alt: Typical big data pipeline
 
-2. Data could be polymorphic. Non-relational data, such as tensors, dataframes and graphs/networks (in `GraphScope`_) are
-   becoming increasingly prevalent. Tables and SQL may not be best way to store/exchange or process them.
-   Having the data transformed from/to "tables" back and forth between different systems could be a huge
-   overhead.
+Existing solutions that utilize a distributed file system to store the
+intermediate data significantly increase the implementation complexity
+whereas the extra costs (e.g., I/O, serialization/deserialization) pull
+down the end-to-end performance of the big data workflow. More specifically,
 
-3. Saving/loading the data to/from the external storage
-   requires lots of memory-copies and IO costs.
+1. Saving/loading the data to/from the external storage requires lots
+   of serializations/deserializations, memory-copies, and IO costs;
 
-Vineyard is designed to solve these issues by providing:
+2. Newly emerged engines are hard to be integrated with existing engines
+   seamlessly, as they often lack support of various data formats and I/O
+   interfaces in the fragmented ecosystem; and
 
-1. **In-memory** distributed data sharing in a **zero-copy** fashion to avoid
-   introducing extra I/O costs by exploiting a shared memory manager derived from plasma.
+3. Using files to exchange the intermediate data makes the data sharing
+   a barrier in the parallel computing workflow; hence it is hard for
+   cross-engine pipelining. Moreover, each engine has no control on how
+   other engines are partitioning and storing the data, thus incurs lots
+   of data transformation when consuming the data that could be eliminated
+   with a better "data-workload" alignment.
 
-2. Built-in **out-of-box high-level** abstraction to share the distributed
-   data with complex structures (e.g., distributed graphs)
-   with nearly zero extra development cost, while the transformation costs are eliminated.
+What vineyard brings to big data pipelines
+------------------------------------------
 
-As shown in the right side of the above figure, we illustrate how to integrate
-vineyard to solve the task in the big data context.
+Vineyard addresses the challenges in both implementation complexity and
+end-to-end efficiency by providing high-level data abstractions and solutions
+to cross-engine data-sharing issues. To achieve this, vineyard provides
 
-First, we use `Mars`_ (a tensor-based unified framework for large-scale data
-computation which scales Numpy, Pandas and Scikit-learn) to preprocess the raw data
-just like the single machine solution do, and save the preprocessed dataframe into vineyard.
+.. image:: https://v6d.io/_static/vineyard_k8s_pipeline_revisit.png
+   :alt: Big data pipeline on vineyard
 
-+-------------+-----------------------------------------------------------------------------+
-|             | .. code-block:: python                                                      |
-| single      |                                                                             |
-|             |     data_csv = pd.read_csv('./data.csv', usecols=[1])                       |
-+-------------+-----------------------------------------------------------------------------+
-|             | .. code-block:: python                                                      |
-|             |                                                                             |
-|             |     import mars.dataframe as md                                             |
-| distributed |     dataset = md.read_csv('hdfs://server/data_full', usecols=[1])           |
-|             |     # after preprocessing, save the dataset to vineyard                     |
-|             |     vineyard_distributed_tensor_id = dataset.to_vineyard()                  |
-+-------------+-----------------------------------------------------------------------------+
+1. Cross-system in-memory distributed data sharing in a zero-copy fashion.
 
-Then, we modify the
-training phase to get the preprocessed data from vineyard. Here vineyard makes
-the sharing of distributed data between `Mars`_ and PyTorch just like a local
-variable in the single machine solution.
+2. Out-of-the-box high-level data access interface to support easier I/O
+   and data integration for engines.
 
-+-------------+-----------------------------------------------------------------------------+
-|             | .. code-block:: python                                                      |
-| single      |                                                                             |
-|             |     data_X, data_Y = create_dataset(dataset)                                |
-+-------------+-----------------------------------------------------------------------------+
-|             | .. code-block:: python                                                      |
-|             |                                                                             |
-|             |     client = vineyard.connect(vineyard_ipc_socket)                          |
-| distributed |     dataset = client.get(vineyard_distributed_tensor_id).local_partition()  |
-|             |     data_X, data_Y = create_dataset(dataset)                                |
-+-------------+-----------------------------------------------------------------------------+
+3. Co-scheduling "data" and "workload" to improve the overall workflow
+   efficiency for data-intensive applications together with Kubernetes.
 
-Finally, we run the training phase distributedly across the cluster.
+Core components of vineyard
+---------------------------
 
-From the example, we see that with vineyard, the task in the big data context
-can be handled with only minor modifications to the single machine solution. Compare
-with the existing approaches, the
-I/O and transformation overheads are also eliminated.
+Distributed data sharding
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Features
----------
+1. The metadata service layer at the bottom utilizes ETCD to store metadata
+   of the distributed data objects. In general, the metadata describes the
+   data object's structure and references the data payloads which are the
+   chunks of memory space to store data values.
 
-In-Memory immutable data sharing
+2. The shared memory store layer employs the shared memory on each cluster
+   node to store the "local" data payloads referenced by the metadata. The
+   data payloads can be shared to on-top applications in a zero-copy fashion
+   with zero extra cost.
+
+3. The medium-level and high level data abstraction provides the application
+   the capability of out-of-the-box integration and cross-engine sharing with
+   other workloads that runs on vineyard.
+
+Co-scheduling data and workloads
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Vineyard is an in-memory immutable data manager, sharing immutable data across
-different systems via shared memory without extra overheads. Vineyard eliminates
-the overhead of serialization/deserialization and IO during exchanging immutable
-data between systems.
+Vineyard has deeply integrated with kuberneters, and co-schedules "data" and
+"workloads" on Kubernetes for data intensive applications, and open a change
+to build a new paradigm for big-data analytical workloads on cloud-native
+infrastructures.
 
-Out-of-box high level data abstraction
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Vineyard first abstract objects as custom resource definitions (CRDs) on
+Kubernetes to make the shared data observable. Vineyard includes a scheduler
+plugin to try its best to place job pods to where the required data lies to
+improve the data locality between workloads on Vineyard.
 
-Computation frameworks usually have their own data abstractions for high-level concepts,
-for example tensor could be `torch.tensor`, `tf.Tensor`, `mxnet.ndarray` etc., not to
-mention that every `graph processing engine <https://github.com/alibaba/GraphScope>`_ has its own graph structure representations.
+Examples
+^^^^^^^^
 
-The variety of data abstractions makes the sharing hard. Vineyard provides out-of-box
-high-level data abstractions over in-memory blobs, by describing objects using hierarchical
-metadatas. Various computation systems can utilize the built-in high level data abstractions
-to exchange data with other systems in computation pipeline in a concise manner.
+A simplified case is demonstrated as the following figure,
 
-Stream pipelining
-^^^^^^^^^^^^^^^^^
+.. image:: https://v6d.io/_static/vineyard_k8s_scheduler.png
+   :alt: How vineyard scheduler works
 
-A computation doesn't need to wait all precedent's result arrive before starting to work.
-Vineyard provides stream as a special kind of immutable data for such pipelining scenarios.
-The precedent job can write the immutable data chunk by chunk to vineyard, while maintaining
-the data structure semantic, and the successor job reads shared-memory chunks from vineyard's
-stream without extra copy cost, then triggers it's own work. The overlapping helps for
-reducing the overall processing time and memory consumption.
+A typical big data analytical pipeline often involves many different specific
+workloads, and one will require other's output as input, as task B requires
+task A's result as input. The task A is scheduled to node1 and node2, generating
+chunks A, B, C and D as results, and they forms a global object in vineyard,
+both the global object and those local chunks are observable by Kubernetes
+as custom resource definitions.
 
-Drivers
-^^^^^^^
+When task B being launched, it may be scheduled to any other pods, and due
+to the lack of co-located data, migration will be triggered to prepare input
+for task B. With vineyard's scheduler plugin enabled, Kubernetes will place
+pods of task B as "near" to its input as possible. In the above figure a
+worker for task B has been scheduled to node1 and due to resource constraints
+the node2 cannot satisfy the requirements for another worker anymore, thus
+the worker will be scheduled to node3, but the overhead of intermediate data
+movement has been optimized.
 
-Many big data analytical tasks have lots of boilerplate routines for tasks that
-unrelated to the computation itself, e.g., various IO adaptors, data partition
-strategies and migration jobs. As the data structure abstraction usually differs
-between systems such routines cannot be easily reused.
-
-Vineyard provides such common manipulate routines on immutable data as drivers.
-Besides sharing the high level data abstractions, vineyard extends the capability
-of data structures by drivers, enabling out-of-box reusable routines for the
-boilerplate part in computation jobs.
-
-Integrate with Kubernetes
--------------------------
-
-Vineyard helps share immutable data between different workloads, is a natural fit
-to cloud-native computing. Vineyard could provide efficient distributed data sharing
-in cloud-native environment by embracing cloud-native big data processing and Kubernetes
-helps vineyard leverage the scale-in/out and scheduling ability of Kubernetes.
+In real world scenarios the cluster will be large to thousands of machines,
+the pipeline could be complex, and the data will be at large volume, then the
+overhead of data movement may dominant the overall performance of data-intensive
+applications. Vineyard fills such a missing piece in CNCF's landscape to make
+big data applications works efficient on cloud-native infrastructures.
 
 Deployment
-^^^^^^^^^^
+----------
 
 For better leveraging the scale-in/out capability of Kubernetes for worker pods of
 a data analytical job, vineyard could be deployed on Kubernetes to as a DaemonSet
@@ -189,6 +167,21 @@ The latest version of online documentation can be found at https://v6d.io.
 
 If you want to build vineyard from source, please refer to `Installation`_.
 
+Getting involved
+----------------
+
+- Join in the `Slack channel`_ for discussion.
+- Read `contribution guide`_.
+- Please report bugs by submitting a GitHub issue.
+- Submit contributions using pull requests.
+
+Thank you in advance for your contributions to vineyard!
+
+Code of Conduct
+---------------
+
+Vineyard follows the [CNCF Code of Conduct](https://github.com/cncf/foundation/blob/master/code-of-conduct.md).
+
 License
 -------
 
@@ -203,21 +196,11 @@ Acknowledgements
 - `dlmalloc <http://gee.cs.oswego.edu/dl/html/malloc.htmlp>`_, Doug Lea's memory allocator;
 - `etcd-cpp-apiv3 <https://github.com/etcd-cpp-apiv3/etcd-cpp-apiv3>`_, a C++ API for etcd's v3 client API;
 - `flat_hash_map <https://github.com/skarupke/flat_hash_map>`_, an efficient hashmap implementation;
-- `jemalloc <https://github.com/jemalloc/jemalloc>`_ a general purpose `malloc(3)` implementation.
-- `nlohmann/json <https://github.com/nlohmann/json>`_, a json library for modern c++.
+- `tbb <https://github.com/oneapi-src/oneTBB>`_ a C++ library for threading building blocks.
 - `pybind11 <https://github.com/pybind/pybind11>`_, a library for seamless operability between C++11 and Python;
 - `s3fs <https://github.com/dask/s3fs>`_, a library provide a convenient Python filesystem interface for S3.
-- `tbb <https://github.com/oneapi-src/oneTBB>`_ a C++ library for threading building blocks.
-
-Getting involved
-----------------
-
-- Join in the `Slack channel`_ for discussion.
-- Read `contribution guide`_.
-- Please report bugs by submitting a GitHub issue.
-- Submit contributions using pull requests.
-
-Thank you in advance for your contributions to vineyard!
+- `uri <https://github.com/cpp-netlib/uri>`_, a library for URI parsing.
+- `nlohmann/json <https://github.com/nlohmann/json>`_, a json library for modern c++.
 
 .. _Mars: https://github.com/mars-project/mars
 .. _GraphScope: https://github.com/alibaba/GraphScope
@@ -226,7 +209,7 @@ Thank you in advance for your contributions to vineyard!
 .. _contribution guide: https://github.com/alibaba/v6d/blob/main/CONTRIBUTING.rst
 .. _time series prediction with LSTM: https://github.com/L1aoXingyu/code-of-learn-deep-learning-with-pytorch/blob/master/chapter5_RNN/time-series/lstm-time-series.ipynb
 .. _python package: https://pypi.org/project/vineyard/
-.. _Slack channel: https://join.slack.com/t/v6d/shared_invite/zt-ml78e62u-IKb4jhHVSIroGDpBDi_q7Q
+.. _Slack channel: https://join.slack.com/t/v6d/shared_invite/zt-peiowbbr-ckIMcPg1NhPXlckJO55ymw
 
 .. |Build and Test| image:: https://github.com/alibaba/v6d/workflows/Build%20and%20Test/badge.svg
    :target: https://github.com/alibaba/v6d/actions?workflow=Build%20and%20Test
