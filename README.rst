@@ -18,13 +18,13 @@ Vineyard builds on Kubernetes as a system for deploying and scaling, and
 managing distributed shared data for dedicated engines in big data pipelines,
 as shown in the following diagram:
 
-.. image:: https://v6d.io/_static/vineyard_k8s_arch.png
+.. image:: ./docs/images/vineyard_k8s_arch.png
    :alt: Vineyard architecture
 
 Introducing the typical big data pipeline
 -----------------------------------------
 
-.. image:: https://v6d.io/_static/vineyard_k8s_pipeline.png
+.. image:: ./docs/images/vineyard_k8s_pipeline.png
    :alt: Typical big data pipeline
 
 Existing solutions that utilize a distributed file system to store the
@@ -53,7 +53,7 @@ Vineyard addresses the challenges in both implementation complexity and
 end-to-end efficiency by providing high-level data abstractions and solutions
 to cross-engine data-sharing issues. To achieve this, vineyard provides
 
-.. image:: https://v6d.io/_static/vineyard_k8s_pipeline_revisit.png
+.. image:: ./docs/images/vineyard_k8s_pipeline_revisit.png
    :alt: Big data pipeline on vineyard
 
 1. Cross-system in-memory distributed data sharing in a zero-copy fashion.
@@ -102,7 +102,7 @@ Examples
 
 A simplified case is demonstrated as the following figure,
 
-.. image:: https://v6d.io/_static/vineyard_k8s_scheduler.png
+.. image:: ./docs/images/vineyard_k8s_scheduler.png
    :alt: How vineyard scheduler works
 
 A typical big data analytical pipeline often involves many different specific
