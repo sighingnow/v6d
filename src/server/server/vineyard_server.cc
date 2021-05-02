@@ -63,7 +63,7 @@ bool DeferredReq::TestThenCall(const json& meta) const {
 
 VineyardServer::VineyardServer(const json& spec)
     : spec_(spec),
-      concurrency_(std::thread::hardware_concurrency()),
+      concurrency_(2 /* std::thread::hardware_concurrency() */),
       context_(concurrency_),
       meta_context_(),
 #if BOOST_VERSION >= 106600
@@ -191,9 +191,12 @@ Status VineyardServer::GetData(const std::vector<ObjectID>& ids,
       // When object not exists, we return an empty json, rather than
       // the status to indicate the error.
 #if !defined(NDEBUG)
+          for (auto const &id: ids) {
+            VLOG(10) << "GET: " << ObjectIDToString(id);
+          }
           if (VLOG_IS_ON(10)) {
             VLOG(10) << "Got request from client to get data, dump json:";
-            std::cerr << meta.dump(4) << std::endl;
+            // std::cerr << meta.dump(4) << std::endl;
             VLOG(10) << "=========================================";
           }
 #endif
@@ -233,7 +236,7 @@ Status VineyardServer::GetData(const std::vector<ObjectID>& ids,
 #if !defined(NDEBUG)
                 if (VLOG_IS_ON(10)) {
                   VLOG(10) << "Got request response:";
-                  std::cerr << sub_tree.dump(4) << std::endl;
+                  // std::cerr << sub_tree.dump(4) << std::endl;
                   VLOG(10) << "=========================================";
                 }
 #endif
@@ -287,7 +290,7 @@ Status VineyardServer::CreateData(
   if (VLOG_IS_ON(10)) {
     VLOG(10) << "Got request from client to create data:";
     // NB: glog has limit on maximum lines.
-    std::cerr << tree.dump(4) << std::endl;
+    // std::cerr << tree.dump(4) << std::endl;
     VLOG(10) << "=========================================";
   }
 #endif

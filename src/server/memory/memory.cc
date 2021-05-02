@@ -299,7 +299,8 @@ Status BulkStore::MakeArena(size_t const size, int& fd, uintptr_t& base) {
   if (fd == -1) {
     return Status::NotEnoughMemory("Failed to allocate a new arena");
   }
-  void* space = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  void* space = mmap(NULL, size, PROT_READ | PROT_WRITE,
+                     MAP_SHARED | MAP_POPULATE, fd, 0);
   base = reinterpret_cast<uintptr_t>(space);
   arenas_.emplace(fd, Arena{.fd = fd,
                             .size = size,

@@ -209,18 +209,18 @@ void IMetaService::postProcessForDelete(
 }
 
 void IMetaService::printDepsGraph() {
-  std::stringstream ss;
-  ss << "object top -> down dependencies: " << std::endl;
-  for (auto const& kv : subobjects_) {
-    ss << VYObjectIDToString(kv.first) << " -> "
-       << VYObjectIDToString(kv.second) << std::endl;
-  }
-  ss << "object down <- top dependencies: " << std::endl;
-  for (auto const& kv : supobjects_) {
-    ss << VYObjectIDToString(kv.first) << " <- "
-       << VYObjectIDToString(kv.second) << std::endl;
-  }
-  VLOG(10) << "Depenencies graph:\n" << ss.str();
+  // std::stringstream ss;
+  // ss << "object top -> down dependencies: " << std::endl;
+  // for (auto const& kv : subobjects_) {
+  //   ss << VYObjectIDToString(kv.first) << " -> "
+  //      << VYObjectIDToString(kv.second) << std::endl;
+  // }
+  // ss << "object down <- top dependencies: " << std::endl;
+  // for (auto const& kv : supobjects_) {
+  //   ss << VYObjectIDToString(kv.first) << " <- "
+  //      << VYObjectIDToString(kv.second) << std::endl;
+  // }
+  // VLOG(10) << "Depenencies graph:\n" << ss.str();
 }
 
 }  // namespace vineyard

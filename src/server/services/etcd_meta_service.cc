@@ -25,6 +25,7 @@ limitations under the License.
 
 #include "common/util/boost.h"
 #include "common/util/logging.h"
+#include "common/backtrace/backtrace.hpp"
 
 #define BACKOFF_RETRY_TIME 10
 
@@ -77,22 +78,39 @@ void EtcdWatchHandler::operator()(etcd::Response const& resp) {
 void EtcdMetaService::requestLock(
     std::string lock_name,
     callback_t<std::shared_ptr<ILock>> callback_after_locked) {
+  std::string traceback;
+  {
+    std::stringstream ss;
+    backtrace_info::backtrace(ss);
+    traceback = ss.str();
+  }
+  auto start_time = GetCurrentTime();
+  VLOG(10) << "start lock on " << lock_name << ": " << traceback;
   etcd_->lock(prefix_ + lock_name)
-      .then([this, callback_after_locked](
+      .then([this, start_time, traceback, callback_after_locked](
                 pplx::task<etcd::Response> const& resp_task) {
+        auto locked_time = GetCurrentTime();
         auto const& resp = resp_task.get();
         VLOG(10) << "etcd lock use " << resp.duration().count()
                  << " microseconds";
         auto lock_key = resp.lock_key();
-        auto lock_ptr = std::make_shared<EtcdLock>(
-            [this, lock_key](const Status& status, unsigned& rev) {
+        auto lock_ptr = std::make_shared<EtcdLock>(traceback,
+            [this, lock_key, start_time, locked_time, traceback](const Status& status, unsigned& rev) {
+              auto unlock_time = GetCurrentTime();
+              LOG(INFO) << "unlock action: lock use " << (locked_time - start_time)
+                        << ", action use " << (unlock_time - locked_time);
+              if (unlock_time - start_time > 1.0) {
+                LOG(INFO) << "lock traceback = " << traceback;
+              }
               // ensure the lock get released.
               auto unlock_resp = this->etcd_->unlock(lock_key).get();
               if (unlock_resp.is_ok()) {
                 rev = unlock_resp.index();
               }
-              return Status::EtcdError(unlock_resp.error_code(),
+              auto unlock_status = Status::EtcdError(unlock_resp.error_code(),
                                        unlock_resp.error_message());
+              LOG(INFO) << "unlock status = " << status.ToString();
+              return unlock_status;
             },
             resp.index());
         auto status =

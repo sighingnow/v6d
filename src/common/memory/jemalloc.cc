@@ -45,74 +45,79 @@ Jemalloc::~Jemalloc() {
 
 void* Jemalloc::Init(void* space, const size_t size) {
   // obtain the current arena numbers
-  unsigned narenas = -1;
-  size_t size_of_narenas = sizeof(unsigned);
-  if (auto ret = vineyard_je_mallctl("arenas.narenas", &narenas,
-                                     &size_of_narenas, nullptr, 0)) {
-    int err = std::exchange(errno, ret);
-    PLOG(ERROR) << "Failed to get narenas";
-    errno = err;
-    return nullptr;
-  }
+  // unsigned narenas = -1;
+  // size_t size_of_narenas = sizeof(unsigned);
+  // if (auto ret = vineyard_je_mallctl("arenas.narenas", &narenas,
+  //                                    &size_of_narenas, nullptr, 0)) {
+  //   int err = std::exchange(errno, ret);
+  //   PLOG(ERROR) << "Failed to get narenas";
+  //   errno = err;
+  //   return nullptr;
+  // }
 
-  arena_index_ = narenas;  // starts from 0
-  if (arena_index_ >= MAXIMUM_ARENAS) {
-    LOG(ERROR) << "There can be " << MAXIMUM_ARENAS << " arenas at most";
-    return nullptr;
-  }
+  // arena_index_ = narenas;  // starts from 0
+  // if (arena_index_ >= MAXIMUM_ARENAS) {
+  //   LOG(ERROR) << "There can be " << MAXIMUM_ARENAS << " arenas at most";
+  //   return nullptr;
+  // }
 
-  arena_t& arena = arenas_[arena_index_];
-  arena.base_pointer_ = reinterpret_cast<uintptr_t>(space);
-  arena.base_end_pointer_ = arena.base_pointer_ + size;
-  arena.pre_alloc_ = arena.base_pointer_;
+  // arena_t& arena = arenas_[arena_index_];
+  // arena.base_pointer_ = reinterpret_cast<uintptr_t>(space);
+  // arena.base_end_pointer_ = arena.base_pointer_ + size;
+  // arena.pre_alloc_ = arena.base_pointer_;
 
-  // prepare the custom hook
-  *extent_hooks_ = je_ehooks_default_extent_hooks;
-  extent_hooks_->alloc = &theAllocHook;
+  // // prepare the custom hook
+  // *extent_hooks_ = je_ehooks_default_extent_hooks;
+  // extent_hooks_->alloc = &theAllocHook;
 
-  // create arenas
-  size_t arena_index_size = sizeof(arena_index_);
-  if (auto ret =
-          vineyard_je_mallctl("arenas.create", &arena_index_, &arena_index_size,
-                              &extent_hooks_, sizeof(extent_hooks_))) {
-    int err = std::exchange(errno, ret);
-    PLOG(ERROR) << "Failed to create arena";
-    errno = err;
-    return nullptr;
-  }
-  LOG(INFO) << "arena index = " << arena_index_;
+  // // create arenas
+  // size_t arena_index_size = sizeof(arena_index_);
+  // if (auto ret =
+  //         vineyard_je_mallctl("arenas.create", &arena_index_,
+  //         &arena_index_size,
+  //                             &extent_hooks_, sizeof(extent_hooks_))) {
+  //   int err = std::exchange(errno, ret);
+  //   PLOG(ERROR) << "Failed to create arena";
+  //   errno = err;
+  //   return nullptr;
+  // }
+  // LOG(INFO) << "arena index = " << arena_index_;
 
   // set muzzy decay time to -1 to prevent jemalloc freeing the memory to the
   // pool, but leave dirty decay time untouched to still give the memory back
   // to the os kernel.
-  // ssize_t decay_ms = 1;
+  // ssize_t dirty_decay_ms = -1;
   // std::string dirty_decay_key =
   //     "arena." + std::to_string(arena_index_) + ".dirty_decay_ms";
   // if (auto ret = vineyard_je_mallctl(dirty_decay_key.c_str(), nullptr,
   // nullptr,
-  //                           &decay_ms, sizeof(decay_ms))) {
+  //                           &dirty_decay_ms, sizeof(dirty_decay_ms))) {
   //   int err = std::exchange(errno, ret);
   //   PLOG(ERROR) << "Failed to set the dirty decay time";
   //   errno = err;
   //   return nullptr;
   // }
-  ssize_t decay_ms = -1;
-  std::string muzzy_decay_key =
-      "arena." + std::to_string(arena_index_) + ".muzzy_decay_ms";
-  if (auto ret = vineyard_je_mallctl(muzzy_decay_key.c_str(), nullptr, nullptr,
-                                     &decay_ms, sizeof(decay_ms))) {
-    int err = std::exchange(errno, ret);
-    PLOG(ERROR) << "Failed to set the muzzy decay time";
-    errno = err;
-    return nullptr;
-  }
+  // ssize_t muzzy_decay_ms = -1;
+  // std::string muzzy_decay_key =
+  //     "arena." + std::to_string(arena_index_) + ".muzzy_decay_ms";
+  // if (auto ret = vineyard_je_mallctl(muzzy_decay_key.c_str(), nullptr,
+  // nullptr,
+  //                                    &muzzy_decay_ms,
+  //                                    sizeof(muzzy_decay_ms))) {
+  //   int err = std::exchange(errno, ret);
+  //   PLOG(ERROR) << "Failed to set the muzzy decay time";
+  //   errno = err;
+  //   return nullptr;
+  // }
 
-  flags_ = MALLOCX_ARENA(arena_index_) | MALLOCX_TCACHE_NONE;
+  flags_ = MALLOCX_ARENA(0) | MALLOCX_TCACHE_NONE;
   return space;
 }
 
 void* Jemalloc::Allocate(const size_t bytes, const size_t alignment) {
-  return vineyard_je_mallocx(std::max(bytes, alignment), flags_);
+  // return vineyard_je_mallocx(std::max(bytes, alignment), flags_);
+  return vineyard_je_mallocx(bytes, flags_);
+  // return vineyard_je_malloc(bytes);
 }
 
 void* Jemalloc::Reallocate(void* pointer, size_t size) {
@@ -121,6 +126,7 @@ void* Jemalloc::Reallocate(void* pointer, size_t size) {
 
 void Jemalloc::Free(void* pointer, size_t) {
   if (pointer) {
+    // vineyard_je_free(pointer);
     vineyard_je_dallocx(pointer, flags_);
   }
 }

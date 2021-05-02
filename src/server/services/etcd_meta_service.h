@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef SRC_SERVER_SERVICES_ETCD_META_SERVICE_H_
 #define SRC_SERVER_SERVICES_ETCD_META_SERVICE_H_
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -68,14 +69,35 @@ class EtcdWatchHandler {
 class EtcdLock : public ILock {
  public:
   Status Release(unsigned& rev) override {
-    return callback_(Status::OK(), rev);
+    if (!released_.exchange(true)) {
+      LOG(INFO) << "execute unlock ...";
+      return callback_(Status::OK(), rev);
+    } else {
+      LOG(ERROR) << "double unlock, traceback = " << traceback_;
+      return Status::Invalid("double unlock");
+    }
   }
-  ~EtcdLock() override {}
+  ~EtcdLock() override {
+    if (!released_.load()) {
+      LOG(ERROR) << "failed to unlock: " << traceback_;
+      unsigned unlock_rev = 0;
+      this->Release(unlock_rev);
+    }
+  }
 
   explicit EtcdLock(const callback_t<unsigned&>& callback, unsigned rev)
-      : ILock(rev), callback_(callback) {}
+      : ILock(rev), callback_(callback) {
+    released_.store(false);
+  }
+
+  explicit EtcdLock(std::string const &traceback, const callback_t<unsigned&>& callback, unsigned rev)
+      : ILock(rev), traceback_(traceback), callback_(callback) {
+    released_.store(false);
+  }
 
  protected:
+  std::atomic_bool released_;
+  std::string traceback_;
   const callback_t<unsigned&> callback_;
 };
 

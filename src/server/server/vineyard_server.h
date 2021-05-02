@@ -79,10 +79,12 @@ class VineyardServer : public std::enable_shared_from_this<VineyardServer> {
     return spec_["deployment"].get_ref<std::string const&>();
   }
 #if BOOST_VERSION >= 106600
-  inline asio::io_context& GetContext() { return context_; }
+  // inline asio::io_context& GetContext() { return context_; }
+  inline asio::io_context& GetContext() { return meta_context_; }
   inline asio::io_context& GetMetaContext() { return meta_context_; }
 #else
-  inline asio::io_service& GetContext() { return context_; }
+  // inline asio::io_service& GetContext() { return context_; }
+  inline asio::io_service& GetContext() { return meta_context_; }
   inline asio::io_service& GetMetaContext() { return meta_context_; }
 #endif
   inline std::shared_ptr<BulkStore> GetBulkStore() { return bulk_store_; }

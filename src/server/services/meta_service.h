@@ -180,49 +180,63 @@ class IMetaService {
       callback_t<> callback_after_finish) {
     // NB: when persist local meta to etcd, we needs the meta_sync_lock_ to
     // avoid contention between other vineyard instances.
+    auto start_time = GetCurrentTime();
     this->requestLock(
         meta_sync_lock_,
-        [this, callback_after_ready, callback_after_finish](
+        [this, start_time, callback_after_ready, callback_after_finish](
             const Status& status, std::shared_ptr<ILock> lock) {
+          auto locked_time = GetCurrentTime();
+          VLOG(10) << "request persist: lock use " << (locked_time - start_time) << " seconds";
           if (status.ok()) {
             requestValues(
-                "", [this, callback_after_ready, callback_after_finish, lock](
+                "", [this, locked_time, callback_after_ready, callback_after_finish, lock](
                         const Status& status, const json& meta, unsigned rev) {
+                  auto update_time = GetCurrentTime();
+                  VLOG(10) << "request persist: update use " << (update_time - locked_time) << " seconds";
                   std::vector<op_t> ops;
                   auto s = callback_after_ready(status, meta, ops);
                   if (s.ok()) {
                     if (ops.empty()) {
-                      unsigned rev_after_unlock = 0;
+                      unsigned rev_after_unlock = rev_;
                       if (lock->Release(rev_after_unlock).ok()) {
                         rev_ = rev_after_unlock;
                       }
+                      VLOG(10) << "request persist: unlock(1) use " << (GetCurrentTime() - update_time) << " seconds";
                       return callback_after_finish(Status::OK());
                     }
                     // apply changes locally before committing to etcd
                     this->metaUpdate(ops, false);
                     // commit to etcd
                     this->commitUpdates(
-                        ops, [this, callback_after_finish, lock](
+                        ops, [this, update_time, callback_after_finish, lock](
                                  const Status& status, unsigned rev) {
+                          auto txn_time = GetCurrentTime();
+                          VLOG(10) << "request persist: txn use " << (txn_time - update_time) << " seconds";
                           // update rev_ to the revision after unlock.
-                          unsigned rev_after_unlock = 0;
+                          unsigned rev_after_unlock = rev_;
                           if (lock->Release(rev_after_unlock).ok()) {
                             rev_ = rev_after_unlock;
                           }
+                          VLOG(10) << "request persist: unlock(2) use " << (GetCurrentTime() - txn_time) << " seconds";
                           return callback_after_finish(status);
                         });
                     return Status::OK();
                   } else {
-                    unsigned rev_after_unlock = 0;
+                    unsigned rev_after_unlock = rev_;
                     if (lock->Release(rev_after_unlock).ok()) {
                       rev_ = rev_after_unlock;
                     }
+                    VLOG(10) << "request persist: unlock(3) use " << (GetCurrentTime() - update_time) << " seconds";
                     return callback_after_finish(s);  // propogate the error
                   }
                 });
             return Status::OK();
           } else {
             LOG(ERROR) << status.ToString();
+            {
+              unsigned rev_after_unlock = rev_;
+              lock->Release(rev_after_unlock);
+            }
             return callback_after_finish(status);  // propogate the error
           }
         });
@@ -249,55 +263,64 @@ class IMetaService {
                  bool&>
           callback_after_ready,
       callback_t<> callback_after_finish) {
-    // generate ops.
-    std::vector<op_t> ops;
-    {
-      bool sync_remote = false;
-      std::vector<ObjectID> processed_delete_set;
-      findDeleteSet(object_ids, processed_delete_set, force, deep);
+    server_ptr_->GetMetaContext().post([this, object_ids, force, deep,
+                                        callback_after_ready,
+                                        callback_after_finish]() {
+      // generate ops.
+      std::vector<op_t> ops;
+      {
+        bool sync_remote = false;
+        std::vector<ObjectID> processed_delete_set;
+        findDeleteSet(object_ids, processed_delete_set, force, deep);
 
-      auto s = callback_after_ready(Status::OK(), meta_, processed_delete_set,
-                                    ops, sync_remote);
-      if (!s.ok()) {
-        VINEYARD_DISCARD(callback_after_finish(s));
-        return;
+        auto s = callback_after_ready(Status::OK(), meta_, processed_delete_set,
+                                      ops, sync_remote);
+        if (!s.ok()) {
+          VINEYARD_DISCARD(callback_after_finish(s));
+          return;
+        }
+
+        // apply changes locally (before committing to etcd)
+        this->metaUpdate(ops, false);
+
+        if (!sync_remote) {
+          VINEYARD_DISCARD(callback_after_finish(s));
+          return;
+        }
       }
 
-      // apply changes locally (before committing to etcd)
-      this->metaUpdate(ops, false);
-
-      if (!sync_remote) {
-        VINEYARD_DISCARD(callback_after_finish(s));
-        return;
-      }
-    }
-
-    // apply remote updates
-    //
-    // NB: when persist local meta to etcd, we needs the meta_sync_lock_ to
-    // avoid contention between other vineyard instances.
-    this->requestLock(
-        meta_sync_lock_,
-        [this, ops /* by copy */, callback_after_ready, callback_after_finish](
-            const Status& status, std::shared_ptr<ILock> lock) {
-          if (status.ok()) {
-            rev_ = lock->GetRev();
-            // commit to etcd
-            this->commitUpdates(ops, [this, callback_after_finish, lock](
-                                         const Status& status, unsigned rev) {
-              // update rev_ to the revision after unlock.
-              unsigned rev_after_unlock = 0;
-              if (lock->Release(rev_after_unlock).ok()) {
-                rev_ = rev_after_unlock;
+      // apply remote updates
+      //
+      // NB: when persist local meta to etcd, we needs the meta_sync_lock_ to
+      // avoid contention between other vineyard instances.
+      this->requestLock(
+          meta_sync_lock_,
+          [this, ops /* by copy */, callback_after_ready,
+           callback_after_finish](const Status& status,
+                                  std::shared_ptr<ILock> lock) {
+            if (status.ok()) {
+              rev_ = lock->GetRev();
+              // commit to etcd
+              this->commitUpdates(ops, [this, callback_after_finish, lock](
+                                           const Status& status, unsigned rev) {
+                // update rev_ to the revision after unlock.
+                unsigned rev_after_unlock = rev_;
+                if (lock->Release(rev_after_unlock).ok()) {
+                  rev_ = rev_after_unlock;
+                }
+                return callback_after_finish(status);
+              });
+              return Status::OK();
+            } else {
+              LOG(ERROR) << status.ToString();
+              {
+                unsigned rev_after_unlock = rev_;
+                lock->Release(rev_after_unlock);
               }
-              return callback_after_finish(status);
-            });
-            return Status::OK();
-          } else {
-            LOG(ERROR) << status.ToString();
-            return callback_after_finish(status);  // propogate the error.
-          }
-        });
+              return callback_after_finish(status);  // propogate the error.
+            }
+          });
+    });
   }
 
   inline void RequestToShallowCopy(
@@ -407,7 +430,7 @@ class IMetaService {
    *  - the last one watches for the first one;
    *  - if there's only one instance, it does nothing.
    */
-  void checkInstanceStatus() {
+  void checkInstanceStatus(callback_t<> callback_after_finish) {
     RequestToPersist(
         [&](const Status& status, const json& tree, std::vector<op_t>& ops) {
           if (status.ok()) {
@@ -424,6 +447,7 @@ class IMetaService {
         [&](const Status& status) {
           if (!status.ok()) {
             LOG(ERROR) << "Failed to refresh self: " << status.ToString();
+            callback_after_finish(status);
             return status;
           }
           auto the_next =
@@ -433,6 +457,7 @@ class IMetaService {
           }
           InstanceID target_inst = *the_next;
           if (target_inst == server_ptr_->instance_id()) {
+            callback_after_finish(status);
             return Status::OK();
           }
           VLOG(10) << "Instance size " << instances_list_.size()
@@ -454,7 +479,7 @@ class IMetaService {
               timeout_count_ = 0;
               target_latest_time_ = 0;
               RequestToPersist(
-                  [&, target_inst](const Status& status, const json& tree,
+                  [&, target_inst, callback_after_finish](const Status& status, const json& tree,
                                    std::vector<op_t>& ops) {
                     if (status.ok()) {
                       std::string key =
@@ -470,11 +495,20 @@ class IMetaService {
                     }
                     return status;
                   },
-                  [&](const Status& status) { return status; });
+                  [&](const Status& status) {
+                    callback_after_finish(status);
+                    return status;
+                  });
               VINEYARD_SUPPRESS(server_ptr_->DeleteAllAt(meta_, target_inst));
+              return status;
+            } else {
+              callback_after_finish(status);
+              return status;
             }
+          } else {
+            callback_after_finish(status);
+            return status;
           }
-          return status;
         });
   }
 
@@ -487,9 +521,11 @@ class IMetaService {
                    << error.message();
       }
       // run check
-      checkInstanceStatus();
-      // run the next round
-      startHeartbeat();
+      checkInstanceStatus([this](Status const &) {
+        // run the next round
+        this->startHeartbeat();
+        return Status::OK();
+      });
     });
   }
 
@@ -507,25 +543,28 @@ class IMetaService {
     // We still need to run a `etcdctl get` for the first time. With a
     // long-running and no compact Etcd, watching from revision 0 may
     // lead to a super huge amount of events, which is unacceptable.
+    auto start_time = GetCurrentTime();
     if (rev_ == 0) {
       requestAll(prefix, rev_,
-                 [this, callback](const Status& status,
+                 [this, start_time, callback](const Status& status,
                                   const std::vector<op_t>& ops, unsigned rev) {
                    if (status.ok()) {
                      this->metaUpdate(ops, true);
                      rev_ = rev;
                    }
+                   VLOG(10) << "requst all uses " << (GetCurrentTime() - start_time) << " seconds";
                    return callback(status, meta_, rev_);
                  });
     } else {
       requestUpdates(
           prefix, rev_,
-          [this, callback](const Status& status, const std::vector<op_t>& ops,
+          [this, start_time, callback](const Status& status, const std::vector<op_t>& ops,
                            unsigned rev) {
             if (status.ok()) {
               this->metaUpdate(ops, true);
               rev_ = rev;
             }
+            VLOG(10) << "requst updates uses " << (GetCurrentTime() - start_time) << " seconds";
             return callback(status, meta_, rev_);
           });
     }

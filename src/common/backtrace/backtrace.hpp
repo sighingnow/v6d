@@ -53,7 +53,13 @@ struct backtrace_info {
       _out << ") ";
       unw_word_t offset = 0;
       if (unw_get_proc_name(&cursor, symbol, sizeof(symbol), &offset) == 0) {
-        _out << "(" << get_demangled_name(symbol) << " + 0x" << offset << ")\n";
+        char *buffer = get_demangled_name(symbol);
+        if (buffer) {
+          _out << "(" << get_demangled_name(symbol) << " + 0x" << offset << ")\n";
+          std::free(buffer);
+        } else {
+          _out << "(" << symbol << " + 0x" << offset << ")\n";
+        }
         if (!compact) {
           _out << "\n";
         }
@@ -65,25 +71,24 @@ struct backtrace_info {
 #endif
   }
 
-  static char const* get_demangled_name(char const* const symbol) noexcept {
-    thread_local std::unique_ptr<char, decltype(std::free)&> demangled_name{
-        nullptr, std::free};
+  static char* get_demangled_name(char const* const symbol) noexcept {
+    // thread_local std::unique_ptr<char, decltype(std::free)&> demangled_name{
+    //     nullptr, std::free};
     // reuse the output buffer, for how `__cxa_demangle` works, see:
     // https://gcc.gnu.org/onlinedocs/libstdc++/libstdc++-html-USERS-4.3/a01696.html
-    thread_local size_t buffer_length = 0;
+    // thread_local size_t buffer_length = 0;
     if (!symbol) {
-      return "<null>";
+      return nullptr;
     }
     int status = -4;
-    size_t buffer_length_next = buffer_length;
-    demangled_name.reset(abi::__cxa_demangle(symbol, demangled_name.release(),
-                                             &buffer_length_next, &status));
+    char *buffer = abi::__cxa_demangle(symbol, nullptr, nullptr, &status);
+    // size_t buffer_length_next = buffer_length;
+    // demangled_name.reset(abi::__cxa_demangle(symbol, demangled_name.release(),
+    //                                          &buffer_length_next, &status));
     if (status == 0) {
-      buffer_length = buffer_length > buffer_length_next ? buffer_length
-                                                         : buffer_length_next;
-      return demangled_name.get();
+      return buffer;
     } else {
-      return symbol;
+      return nullptr;
     }
   }
 
