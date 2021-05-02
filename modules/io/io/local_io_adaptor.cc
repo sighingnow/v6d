@@ -36,6 +36,7 @@ limitations under the License.
 #include "glog/logging.h"
 
 #include "basic/ds/arrow_utils.h"
+#include "common/util/functions.h"
 
 namespace vineyard {
 LocalIOAdaptor::LocalIOAdaptor(const std::string& location)
@@ -280,6 +281,9 @@ Status LocalIOAdaptor::ReadPartialTable(std::shared_ptr<arrow::Table>* table,
   std::shared_ptr<arrow::io::InputStream> input =
       arrow::io::RandomAccessFile::GetStream(ifp_, offset, nbytes);
 
+  VLOG(2) << "start read table from offset " << offset;
+  auto start_read_time = GetCurrentTime();
+
   arrow::MemoryPool* pool = arrow::default_memory_pool();
 
   auto read_options = arrow::csv::ReadOptions::Defaults();
@@ -362,6 +366,9 @@ Status LocalIOAdaptor::ReadPartialTable(std::shared_ptr<arrow::Table>* table,
   *table = result.ValueOrDie();
 
   RETURN_ON_ARROW_ERROR((*table)->Validate());
+
+  VLOG(2) << "finish read table from offset " << offset << ", use "
+          << (GetCurrentTime() - start_read_time) << " seconds";
 
   VLOG(2) << "[file-" << location_ << "] contains: " << (*table)->num_rows()
           << " rows, " << (*table)->num_columns() << " columns";
