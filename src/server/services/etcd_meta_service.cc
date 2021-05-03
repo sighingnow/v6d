@@ -23,9 +23,9 @@ limitations under the License.
 
 #include "etcd/v3/Transaction.hpp"
 
+#include "common/backtrace/backtrace.hpp"
 #include "common/util/boost.h"
 #include "common/util/logging.h"
-#include "common/backtrace/backtrace.hpp"
 
 #define BACKOFF_RETRY_TIME 10
 
@@ -94,11 +94,14 @@ void EtcdMetaService::requestLock(
         VLOG(10) << "etcd lock use " << resp.duration().count()
                  << " microseconds";
         auto lock_key = resp.lock_key();
-        auto lock_ptr = std::make_shared<EtcdLock>(traceback,
-            [this, lock_key, start_time, locked_time, traceback](const Status& status, unsigned& rev) {
+        auto lock_ptr = std::make_shared<EtcdLock>(
+            traceback,
+            [this, lock_key, start_time, locked_time, traceback](
+                const Status& status, unsigned& rev) {
               auto unlock_time = GetCurrentTime();
-              LOG(INFO) << "unlock action: lock use " << (locked_time - start_time)
-                        << ", action use " << (unlock_time - locked_time);
+              LOG(INFO) << "unlock action: lock use "
+                        << (locked_time - start_time) << ", action use "
+                        << (unlock_time - locked_time);
               if (unlock_time - start_time > 1.0) {
                 LOG(INFO) << "lock traceback = " << traceback;
               }
@@ -107,8 +110,8 @@ void EtcdMetaService::requestLock(
               if (unlock_resp.is_ok()) {
                 rev = unlock_resp.index();
               }
-              auto unlock_status = Status::EtcdError(unlock_resp.error_code(),
-                                       unlock_resp.error_message());
+              auto unlock_status = Status::EtcdError(
+                  unlock_resp.error_code(), unlock_resp.error_message());
               LOG(INFO) << "unlock status = " << status.ToString();
               return unlock_status;
             },

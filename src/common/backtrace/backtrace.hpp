@@ -53,9 +53,10 @@ struct backtrace_info {
       _out << ") ";
       unw_word_t offset = 0;
       if (unw_get_proc_name(&cursor, symbol, sizeof(symbol), &offset) == 0) {
-        char *buffer = get_demangled_name(symbol);
+        char* buffer = get_demangled_name(symbol);
         if (buffer) {
-          _out << "(" << get_demangled_name(symbol) << " + 0x" << offset << ")\n";
+          _out << "(" << get_demangled_name(symbol) << " + 0x" << offset
+               << ")\n";
           std::free(buffer);
         } else {
           _out << "(" << symbol << " + 0x" << offset << ")\n";
@@ -81,9 +82,10 @@ struct backtrace_info {
       return nullptr;
     }
     int status = -4;
-    char *buffer = abi::__cxa_demangle(symbol, nullptr, nullptr, &status);
+    char* buffer = abi::__cxa_demangle(symbol, nullptr, nullptr, &status);
     // size_t buffer_length_next = buffer_length;
-    // demangled_name.reset(abi::__cxa_demangle(symbol, demangled_name.release(),
+    // demangled_name.reset(abi::__cxa_demangle(symbol,
+    // demangled_name.release(),
     //                                          &buffer_length_next, &status));
     if (status == 0) {
       return buffer;

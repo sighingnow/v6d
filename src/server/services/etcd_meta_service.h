@@ -81,7 +81,7 @@ class EtcdLock : public ILock {
     if (!released_.load()) {
       LOG(ERROR) << "failed to unlock: " << traceback_;
       unsigned unlock_rev = 0;
-      this->Release(unlock_rev);
+      VINEYARD_DISCARD(this->Release(unlock_rev));
     }
   }
 
@@ -90,7 +90,8 @@ class EtcdLock : public ILock {
     released_.store(false);
   }
 
-  explicit EtcdLock(std::string const &traceback, const callback_t<unsigned&>& callback, unsigned rev)
+  explicit EtcdLock(std::string const& traceback,
+                    const callback_t<unsigned&>& callback, unsigned rev)
       : ILock(rev), traceback_(traceback), callback_(callback) {
     released_.store(false);
   }

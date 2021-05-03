@@ -181,65 +181,71 @@ class IMetaService {
     // NB: when persist local meta to etcd, we needs the meta_sync_lock_ to
     // avoid contention between other vineyard instances.
     auto start_time = GetCurrentTime();
-    this->requestLock(
-        meta_sync_lock_,
-        [this, start_time, callback_after_ready, callback_after_finish](
-            const Status& status, std::shared_ptr<ILock> lock) {
-          auto locked_time = GetCurrentTime();
-          VLOG(10) << "request persist: lock use " << (locked_time - start_time) << " seconds";
-          if (status.ok()) {
-            requestValues(
-                "", [this, locked_time, callback_after_ready, callback_after_finish, lock](
-                        const Status& status, const json& meta, unsigned rev) {
-                  auto update_time = GetCurrentTime();
-                  VLOG(10) << "request persist: update use " << (update_time - locked_time) << " seconds";
-                  std::vector<op_t> ops;
-                  auto s = callback_after_ready(status, meta, ops);
-                  if (s.ok()) {
-                    if (ops.empty()) {
+    this->requestLock(meta_sync_lock_, [this, start_time, callback_after_ready,
+                                        callback_after_finish](
+                                           const Status& status,
+                                           std::shared_ptr<ILock> lock) {
+      auto locked_time = GetCurrentTime();
+      VLOG(10) << "request persist: lock use " << (locked_time - start_time)
+               << " seconds";
+      if (status.ok()) {
+        requestValues(
+            "", [this, locked_time, callback_after_ready, callback_after_finish,
+                 lock](const Status& status, const json& meta, unsigned rev) {
+              auto update_time = GetCurrentTime();
+              VLOG(10) << "request persist: update use "
+                       << (update_time - locked_time) << " seconds";
+              std::vector<op_t> ops;
+              auto s = callback_after_ready(status, meta, ops);
+              if (s.ok()) {
+                if (ops.empty()) {
+                  unsigned rev_after_unlock = rev_;
+                  if (lock->Release(rev_after_unlock).ok()) {
+                    rev_ = rev_after_unlock;
+                  }
+                  VLOG(10) << "request persist: unlock(1) use "
+                           << (GetCurrentTime() - update_time) << " seconds";
+                  return callback_after_finish(Status::OK());
+                }
+                // apply changes locally before committing to etcd
+                this->metaUpdate(ops, false);
+                // commit to etcd
+                this->commitUpdates(
+                    ops, [this, update_time, callback_after_finish, lock](
+                             const Status& status, unsigned rev) {
+                      auto txn_time = GetCurrentTime();
+                      VLOG(10) << "request persist: txn use "
+                               << (txn_time - update_time) << " seconds";
+                      // update rev_ to the revision after unlock.
                       unsigned rev_after_unlock = rev_;
                       if (lock->Release(rev_after_unlock).ok()) {
                         rev_ = rev_after_unlock;
                       }
-                      VLOG(10) << "request persist: unlock(1) use " << (GetCurrentTime() - update_time) << " seconds";
-                      return callback_after_finish(Status::OK());
-                    }
-                    // apply changes locally before committing to etcd
-                    this->metaUpdate(ops, false);
-                    // commit to etcd
-                    this->commitUpdates(
-                        ops, [this, update_time, callback_after_finish, lock](
-                                 const Status& status, unsigned rev) {
-                          auto txn_time = GetCurrentTime();
-                          VLOG(10) << "request persist: txn use " << (txn_time - update_time) << " seconds";
-                          // update rev_ to the revision after unlock.
-                          unsigned rev_after_unlock = rev_;
-                          if (lock->Release(rev_after_unlock).ok()) {
-                            rev_ = rev_after_unlock;
-                          }
-                          VLOG(10) << "request persist: unlock(2) use " << (GetCurrentTime() - txn_time) << " seconds";
-                          return callback_after_finish(status);
-                        });
-                    return Status::OK();
-                  } else {
-                    unsigned rev_after_unlock = rev_;
-                    if (lock->Release(rev_after_unlock).ok()) {
-                      rev_ = rev_after_unlock;
-                    }
-                    VLOG(10) << "request persist: unlock(3) use " << (GetCurrentTime() - update_time) << " seconds";
-                    return callback_after_finish(s);  // propogate the error
-                  }
-                });
-            return Status::OK();
-          } else {
-            LOG(ERROR) << status.ToString();
-            {
-              unsigned rev_after_unlock = rev_;
-              lock->Release(rev_after_unlock);
-            }
-            return callback_after_finish(status);  // propogate the error
-          }
-        });
+                      VLOG(10) << "request persist: unlock(2) use "
+                               << (GetCurrentTime() - txn_time) << " seconds";
+                      return callback_after_finish(status);
+                    });
+                return Status::OK();
+              } else {
+                unsigned rev_after_unlock = rev_;
+                if (lock->Release(rev_after_unlock).ok()) {
+                  rev_ = rev_after_unlock;
+                }
+                VLOG(10) << "request persist: unlock(3) use "
+                         << (GetCurrentTime() - update_time) << " seconds";
+                return callback_after_finish(s);  // propogate the error
+              }
+            });
+        return Status::OK();
+      } else {
+        LOG(ERROR) << status.ToString();
+        {
+          unsigned rev_after_unlock = rev_;
+          VINEYARD_DISCARD(lock->Release(rev_after_unlock));
+        }
+        return callback_after_finish(status);  // propogate the error
+      }
+    });
   }
 
   inline void RequestToGetData(const bool sync_remote,
@@ -315,7 +321,7 @@ class IMetaService {
               LOG(ERROR) << status.ToString();
               {
                 unsigned rev_after_unlock = rev_;
-                lock->Release(rev_after_unlock);
+                VINEYARD_DISCARD(lock->Release(rev_after_unlock));
               }
               return callback_after_finish(status);  // propogate the error.
             }
@@ -412,7 +418,7 @@ class IMetaService {
                 boost::bind(&IMetaService::daemonWatchHandler, this, _1, _2,
                             _3));
             // start heartbeat
-            this->startHeartbeat();
+            VINEYARD_DISCARD(this->startHeartbeat(Status::OK()));
             // mark meta service as ready
             Ready();
           } else {
@@ -432,7 +438,8 @@ class IMetaService {
    */
   void checkInstanceStatus(callback_t<> callback_after_finish) {
     RequestToPersist(
-        [&](const Status& status, const json& tree, std::vector<op_t>& ops) {
+        [&, callback_after_finish](const Status& status, const json& tree,
+                                   std::vector<op_t>& ops) {
           if (status.ok()) {
             ops.emplace_back(op_t::Put(
                 "/instances/i" + std::to_string(server_ptr_->instance_id()) +
@@ -444,11 +451,10 @@ class IMetaService {
             return status;
           }
         },
-        [&](const Status& status) {
+        [&, callback_after_finish](const Status& status) {
           if (!status.ok()) {
             LOG(ERROR) << "Failed to refresh self: " << status.ToString();
-            callback_after_finish(status);
-            return status;
+            return callback_after_finish(status);
           }
           auto the_next =
               instances_list_.upper_bound(server_ptr_->instance_id());
@@ -457,8 +463,7 @@ class IMetaService {
           }
           InstanceID target_inst = *the_next;
           if (target_inst == server_ptr_->instance_id()) {
-            callback_after_finish(status);
-            return Status::OK();
+            return callback_after_finish(status);
           }
           VLOG(10) << "Instance size " << instances_list_.size()
                    << ", target instance is " << target_inst;
@@ -479,8 +484,9 @@ class IMetaService {
               timeout_count_ = 0;
               target_latest_time_ = 0;
               RequestToPersist(
-                  [&, target_inst, callback_after_finish](const Status& status, const json& tree,
-                                   std::vector<op_t>& ops) {
+                  [&, target_inst, callback_after_finish](
+                      const Status& status, const json& tree,
+                      std::vector<op_t>& ops) {
                     if (status.ok()) {
                       std::string key =
                           "/instances/i" + std::to_string(target_inst);
@@ -496,23 +502,20 @@ class IMetaService {
                     return status;
                   },
                   [&](const Status& status) {
-                    callback_after_finish(status);
-                    return status;
+                    return callback_after_finish(status);
                   });
               VINEYARD_SUPPRESS(server_ptr_->DeleteAllAt(meta_, target_inst));
               return status;
             } else {
-              callback_after_finish(status);
-              return status;
+              return callback_after_finish(status);
             }
           } else {
-            callback_after_finish(status);
-            return status;
+            return callback_after_finish(status);
           }
         });
   }
 
-  void startHeartbeat() {
+  Status startHeartbeat(Status const&) {
     heartbeat_timer_.reset(new asio::steady_timer(
         server_ptr_->GetMetaContext(), std::chrono::seconds(HEARTBEAT_TIME)));
     heartbeat_timer_->async_wait([&](const boost::system::error_code& error) {
@@ -520,13 +523,14 @@ class IMetaService {
         LOG(ERROR) << "heartbeat timer error: " << error << ", "
                    << error.message();
       }
-      // run check
-      checkInstanceStatus([this](Status const &) {
-        // run the next round
-        this->startHeartbeat();
+      // run check loop
+      checkInstanceStatus([&](Status const& status) {
+        server_ptr_->GetMetaContext().post(
+            [&, status]() { return this->startHeartbeat(status); });
         return Status::OK();
       });
     });
+    return Status::OK();
   }
 
  protected:
@@ -547,26 +551,30 @@ class IMetaService {
     if (rev_ == 0) {
       requestAll(prefix, rev_,
                  [this, start_time, callback](const Status& status,
-                                  const std::vector<op_t>& ops, unsigned rev) {
+                                              const std::vector<op_t>& ops,
+                                              unsigned rev) {
                    if (status.ok()) {
                      this->metaUpdate(ops, true);
                      rev_ = rev;
                    }
-                   VLOG(10) << "requst all uses " << (GetCurrentTime() - start_time) << " seconds";
+                   VLOG(10) << "requst all uses "
+                            << (GetCurrentTime() - start_time) << " seconds";
                    return callback(status, meta_, rev_);
                  });
     } else {
-      requestUpdates(
-          prefix, rev_,
-          [this, start_time, callback](const Status& status, const std::vector<op_t>& ops,
-                           unsigned rev) {
-            if (status.ok()) {
-              this->metaUpdate(ops, true);
-              rev_ = rev;
-            }
-            VLOG(10) << "requst updates uses " << (GetCurrentTime() - start_time) << " seconds";
-            return callback(status, meta_, rev_);
-          });
+      requestUpdates(prefix, rev_,
+                     [this, start_time, callback](const Status& status,
+                                                  const std::vector<op_t>& ops,
+                                                  unsigned rev) {
+                       if (status.ok()) {
+                         this->metaUpdate(ops, true);
+                         rev_ = rev;
+                       }
+                       VLOG(10)
+                           << "requst updates uses "
+                           << (GetCurrentTime() - start_time) << " seconds";
+                       return callback(status, meta_, rev_);
+                     });
     }
   }
 

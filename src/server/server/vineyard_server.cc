@@ -191,7 +191,7 @@ Status VineyardServer::GetData(const std::vector<ObjectID>& ids,
       // When object not exists, we return an empty json, rather than
       // the status to indicate the error.
 #if !defined(NDEBUG)
-          for (auto const &id: ids) {
+          for (auto const& id : ids) {
             VLOG(10) << "GET: " << ObjectIDToString(id);
           }
           if (VLOG_IS_ON(10)) {
