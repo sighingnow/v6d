@@ -102,6 +102,21 @@ class EtcdLock : public ILock {
   const callback_t<unsigned&> callback_;
 };
 
+class LocalLock : public ILock {
+ public:
+  Status Release(unsigned& rev) override {
+    return callback_(Status::Invalid("unable to unlock none locks..."), rev);
+  }
+
+  ~LocalLock() override {}
+
+  explicit LocalLock(const callback_t<unsigned&>& callback)
+      : ILock(-1), callback_(callback) {}
+
+ protected:
+  const callback_t<unsigned&> callback_;
+};
+
 /**
  * @brief EtcdMetaService provides meta services in regards to etcd, e.g.
  * requesting and committing udpates
@@ -129,6 +144,14 @@ class EtcdMetaService : public IMetaService {
         etcd_spec_(server_ptr_->GetSpec()["metastore_spec"]),
         prefix_(etcd_spec_["prefix"].get_ref<std::string const&>()) {}
 
+  void requestLockLocal(
+      std::string lock_name,
+      callback_t<std::shared_ptr<ILock>> callback_after_locked);
+
+  void requestLockRemote(
+      std::string lock_name,
+      callback_t<std::shared_ptr<ILock>> callback_after_locked);
+
   void requestLock(
       std::string lock_name,
       callback_t<std::shared_ptr<ILock>> callback_after_locked) override;
@@ -153,7 +176,7 @@ class EtcdMetaService : public IMetaService {
       callback_t<const std::vector<op_t>&, unsigned> callback);
 
   Status probe() override {
-    if (EtcdLauncher::probeEtcdServer(etcd_, prefix_)) {
+    if (EtcdLauncher::probeEtcdServer(etcd_, prefix_ + meta_probe_key_)) {
       return Status::OK();
     } else {
       return Status::Invalid(

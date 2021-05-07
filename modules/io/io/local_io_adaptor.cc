@@ -455,8 +455,12 @@ Status LocalIOAdaptor::WriteLine(const std::string& line) {
     return Status::IOError("The file hasn't been opened in write mode: " +
                            location_);
   }
-  return Status::ArrowError(ofp_->Write(line.c_str(), line.size()) &
-                            ofp_->Write("\n", 1));
+  auto status = ofp_->Write(line.c_str(), line.size());
+  if (status.ok()) {
+    return Status::ArrowError(ofp_->Write("\n", 1));
+  } else {
+    return Status::ArrowError(status);
+  }
 }
 
 Status LocalIOAdaptor::Seek(const int64_t offset) {
@@ -551,7 +555,12 @@ Status LocalIOAdaptor::Close() {
     s1 = Status::ArrowError(ifp_->Close());
   }
   if (ofp_) {
-    s2 = Status::ArrowError(ofp_->Flush() & ofp_->Close());
+    auto status = ofp_->Flush();
+    if (status.ok()) {
+      s2 = Status::ArrowError(ofp_->Close());
+    } else {
+      s2 = Status::ArrowError(status);
+    }
   }
   return s1 & s2;
 }

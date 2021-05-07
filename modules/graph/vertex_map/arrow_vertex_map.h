@@ -795,7 +795,7 @@ class BasicArrowVertexMapBuilder : public ArrowVertexMapBuilder<OID_T, VID_T> {
               ++cur_gid;
             }
           }
-
+          auto start_copy = grape::GetCurrentTime();
           {
             typename InternalType<oid_t>::vineyard_builder_type array_builder(
                 client, array);
@@ -809,6 +809,9 @@ class BasicArrowVertexMapBuilder : public ArrowVertexMapBuilder<OID_T, VID_T> {
                 *std::dynamic_pointer_cast<vineyard::Hashmap<oid_t, vid_t>>(
                     builder.Seal(client)));
           }
+          auto finish_copy = grape::GetCurrentTime();
+
+          LOG(INFO) << "copy vertexmap to vineyard requires: " << (finish_copy - start_copy);
         }
       });
     }

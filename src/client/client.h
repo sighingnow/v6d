@@ -176,6 +176,13 @@ class Client : public ClientBase {
   Status GetMetaData(const ObjectID id, ObjectMeta& meta_data,
                      const bool sync_remote = false) override;
 
+  Status AllocatedSize(const ObjectID id, size_t &size,
+    const bool sync_remote = false);
+
+  Status GetBufferSizes(
+    const std::set<ObjectID>& ids,
+    size_t& size);
+
   /**
    * @brief Obtain multiple metadatas from vineyard server.
    *

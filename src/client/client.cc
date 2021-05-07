@@ -104,6 +104,18 @@ Status Client::GetMetaData(const ObjectID id, ObjectMeta& meta,
   return Status::OK();
 }
 
+Status Client::AllocatedSize(const ObjectID id, size_t &size,
+    const bool sync_remote) {
+  ENSURE_CONNECTED(this);
+  json tree;
+  RETURN_ON_ERROR(GetData(id, tree, sync_remote));
+  ObjectMeta meta;
+  meta.SetMetaData(this, tree);
+
+  RETURN_ON_ERROR(GetBufferSizes(meta.GetBufferSet()->AllBufferIds(), size));
+  return Status::OK();
+}
+
 Status Client::GetMetaData(const std::vector<ObjectID>& ids,
                            std::vector<ObjectMeta>& metas,
                            const bool sync_remote) {
@@ -395,6 +407,29 @@ Status Client::GetBuffers(
     buffer = std::make_shared<arrow::Buffer>(shared + item.second.data_offset,
                                              item.second.data_size);
     buffers.emplace(item.first, buffer);
+  }
+  return Status::OK();
+}
+
+Status Client::GetBufferSizes(
+    const std::set<ObjectID>& ids,
+    size_t& buffer_sizes) {
+  if (ids.empty()) {
+    return Status::OK();
+  }
+  ENSURE_CONNECTED(this);
+  std::string message_out;
+  WriteGetBuffersRequest(ids, message_out);
+  RETURN_ON_ERROR(doWrite(message_out));
+  json message_in;
+  RETURN_ON_ERROR(doRead(message_in));
+  std::map<ObjectID, Payload> payloads;
+  RETURN_ON_ERROR(ReadGetBuffersReply(message_in, payloads));
+  buffer_sizes = 0;
+  for (auto const& item : payloads) {
+    if (item.second.data_size > 0) {
+      buffer_sizes += item.second.data_size;
+    }
   }
   return Status::OK();
 }

@@ -1979,6 +1979,92 @@ class ArrowFragment
     return ret;
   }
 
+  vineyard::ObjectID AddVertexColumns(
+      vineyard::Client& client,
+      const std::map<
+          label_id_t,
+          std::vector<std::pair<std::string, std::shared_ptr<arrow::ChunkedArray>>>>
+          columns) {
+    vineyard::ObjectMeta old_meta, new_meta;
+    VINEYARD_CHECK_OK(client.GetMetaData(this->id_, old_meta));
+
+    new_meta.SetTypeName(type_name<ArrowFragment<oid_t, vid_t>>());
+    new_meta.AddKeyValue("fid", fid_);
+    new_meta.AddKeyValue("fnum", fnum_);
+    new_meta.AddKeyValue("directed", static_cast<int>(directed_));
+    new_meta.AddKeyValue("oid_type", TypeName<oid_t>::Get());
+    new_meta.AddKeyValue("vid_type", TypeName<vid_t>::Get());
+    new_meta.AddKeyValue("vertex_label_num", vertex_label_num_);
+    new_meta.AddKeyValue("edge_label_num", edge_label_num_);
+
+    auto schema = schema_;
+    for (label_id_t i = 0; i < vertex_label_num_; ++i) {
+      std::string table_name = generate_name_with_suffix("vertex_tables", i);
+      if (columns.find(i) != columns.end()) {
+        std::shared_ptr<vineyard::Table> old_table =
+            std::make_shared<vineyard::Table>();
+        old_table->Construct(old_meta.GetMemberMeta(table_name));
+        prop_id_t old_prop_num = old_table->num_columns();
+        vineyard::TableExtender extender(client, old_table);
+        auto& vec = columns.at(i);
+        for (auto& pair : vec) {
+          auto status = extender.AddColumn(client, pair.first, pair.second);
+          CHECK(status.ok());
+        }
+        std::shared_ptr<vineyard::Table> new_table =
+            std::dynamic_pointer_cast<vineyard::Table>(extender.Seal(client));
+        new_meta.AddMember(table_name, new_table->meta());
+        std::shared_ptr<arrow::Table> arrow_table = new_table->GetTable();
+        GENERATE_TABLE_META("vertex", i, arrow_table);
+        auto label =
+            old_meta.GetKeyValue("vertex_label_name_" + std::to_string(i));
+        auto& entry = schema.GetMutableEntry(label, "VERTEX");
+        prop_id_t prop_num = arrow_table->num_columns();
+        for (prop_id_t j = old_prop_num; j < prop_num; ++j) {
+          entry.AddProperty(arrow_table->field(j)->name(),
+                            arrow_table->field(j)->type());
+        }
+      } else {
+        GENERATE_TABLE_META("vertex", i, this->vertex_tables_[i]);
+        new_meta.AddMember(table_name, old_meta.GetMemberMeta(table_name));
+      }
+    }
+    new_meta.AddKeyValue("schema", schema.ToJSONString());
+
+    size_t nbytes = 0;
+    new_meta.AddMember("ivnums", old_meta.GetMemberMeta("ivnums"));
+    nbytes += old_meta.GetMemberMeta("ivnums").GetNBytes();
+    new_meta.AddMember("ovnums", old_meta.GetMemberMeta("ovnums"));
+    nbytes += old_meta.GetMemberMeta("ovnums").GetNBytes();
+    new_meta.AddMember("tvnums", old_meta.GetMemberMeta("tvnums"));
+    nbytes += old_meta.GetMemberMeta("tvnums").GetNBytes();
+
+    ASSIGN_IDENTICAL_VEC_META("ovgid_lists", vertex_label_num_);
+    ASSIGN_IDENTICAL_VEC_META("ovg2l_maps", vertex_label_num_);
+    ASSIGN_IDENTICAL_VEC_META("edge_tables", edge_label_num_);
+
+    GENERATE_TABLE_VEC_META("edge", 0, edge_label_num_, this->edge_tables_);
+
+    if (directed_) {
+      ASSIGN_IDENTICAL_VEC_VEC_META("ie_lists", vertex_label_num_,
+                                    edge_label_num_);
+      ASSIGN_IDENTICAL_VEC_VEC_META("ie_offsets_lists", vertex_label_num_,
+                                    edge_label_num_);
+    }
+    ASSIGN_IDENTICAL_VEC_VEC_META("oe_lists", vertex_label_num_,
+                                  edge_label_num_);
+    ASSIGN_IDENTICAL_VEC_VEC_META("oe_offsets_lists", vertex_label_num_,
+                                  edge_label_num_);
+
+    new_meta.AddMember("vertex_map", old_meta.GetMemberMeta("vertex_map"));
+
+    new_meta.SetNBytes(nbytes);
+
+    vineyard::ObjectID ret;
+    VINEYARD_CHECK_OK(client.CreateMetaData(new_meta, ret));
+    return ret;
+  }
+
   boost::leaf::result<vineyard::ObjectID> Project(
       vineyard::Client& client,
       std::map<label_id_t, std::vector<label_id_t>> vertices,

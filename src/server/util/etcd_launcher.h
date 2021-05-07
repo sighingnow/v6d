@@ -35,7 +35,7 @@ class EtcdLauncher {
   explicit EtcdLauncher(const json& etcd_spec) : etcd_spec_(etcd_spec) {}
 
   Status LaunchEtcdServer(std::unique_ptr<etcd::Client>& etcd_client,
-                          std::string& sync_lock,
+                          std::string const& probe_key,
                           std::unique_ptr<boost::process::child>& etcd_proc);
 
   // Check if the etcd server available, return True if succeed, otherwise

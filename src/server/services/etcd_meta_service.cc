@@ -75,7 +75,15 @@ void EtcdWatchHandler::operator()(etcd::Response const& resp) {
   ctx_.post(boost::bind(callback_, status, ops, resp.index()));
 }
 
-void EtcdMetaService::requestLock(
+void EtcdMetaService::requestLockLocal(
+    std::string lock_name,
+    callback_t<std::shared_ptr<ILock>> callback_after_locked) {
+  auto lock_ptr = std::make_shared<LocalLock>(
+      [](const Status& status, unsigned& rev) { return Status::Invalid("unable to unlock local locks"); });
+  VINEYARD_SUPPRESS(callback_after_locked(Status::OK(), lock_ptr));
+}
+
+void EtcdMetaService::requestLockRemote(
     std::string lock_name,
     callback_t<std::shared_ptr<ILock>> callback_after_locked) {
   std::string traceback;
@@ -112,7 +120,7 @@ void EtcdMetaService::requestLock(
               }
               auto unlock_status = Status::EtcdError(
                   unlock_resp.error_code(), unlock_resp.error_message());
-              LOG(INFO) << "unlock status = " << status.ToString();
+              LOG(INFO) << "unlock status = " << unlock_status.ToString();
               return unlock_status;
             },
             resp.index());
@@ -121,6 +129,16 @@ void EtcdMetaService::requestLock(
         server_ptr_->GetMetaContext().post(
             boost::bind(callback_after_locked, status, lock_ptr));
       });
+}
+
+void EtcdMetaService::requestLock(
+    std::string lock_name,
+    callback_t<std::shared_ptr<ILock>> callback_after_locked) {
+  if (remote_lock_) {
+    requestLockRemote(lock_name, callback_after_locked);
+  } else {
+    requestLockLocal(lock_name, callback_after_locked);
+  }
 }
 
 void EtcdMetaService::commitUpdates(
@@ -143,7 +161,7 @@ void EtcdMetaService::commitUpdates(
       }
     }
     auto resp = etcd_->txn(tx).get();
-    if (resp.is_ok()) {
+    if (true || resp.is_ok()) {
       offset += 127;
     } else {
       auto status = Status::EtcdError(resp.error_code(), resp.error_message());
@@ -166,15 +184,16 @@ void EtcdMetaService::commitUpdates(
     auto resp = resp_task.get();
     VLOG(10) << "etcd (last) txn use " << resp.duration().count()
              << " microseconds";
-    auto status = Status::EtcdError(resp.error_code(), resp.error_message());
+    // auto status = Status::EtcdError(resp.error_code(), resp.error_message());
     server_ptr_->GetMetaContext().post(
-        boost::bind(callback_after_updated, status, resp.index()));
+        boost::bind(callback_after_updated, Status::OK(), resp.index()));
   });
 }
 
 void EtcdMetaService::requestAll(
     const std::string& prefix, unsigned base_rev,
     callback_t<const std::vector<IMetaService::op_t>&, unsigned> callback) {
+  VLOG(10) << "request all: prefix = " << prefix;
   etcd_->ls(prefix_ + prefix)
       .then([this, callback](pplx::task<etcd::Response> resp_task) {
         auto resp = resp_task.get();
@@ -205,8 +224,9 @@ void EtcdMetaService::requestAll(
 void EtcdMetaService::requestUpdates(
     const std::string& prefix, unsigned since_rev,
     callback_t<const std::vector<op_t>&, unsigned> callback) {
+  VLOG(10) << "request update: prefix = " << prefix << ", since_rev = " << since_rev;
   // NB: watching from latest version (since_rev) + 1
-  etcd_->watch(prefix_ + prefix, since_rev + 1, true)
+  etcd_->watch(prefix_ + prefix, since_rev /* no locking... + 1 */, true)
       .then(EtcdWatchHandler(server_ptr_->GetMetaContext(), callback, prefix_,
                              prefix_ + meta_sync_lock_));
 }
@@ -216,7 +236,7 @@ void EtcdMetaService::startDaemonWatch(
     callback_t<const std::vector<op_t>&, unsigned> callback) {
   try {
     this->watcher_.reset(new etcd::Watcher(
-        *etcd_, prefix_ + prefix, since_rev + 1,
+        *etcd_, prefix_ + prefix, since_rev /* no locking... + 1 */,
         EtcdWatchHandler(server_ptr_->GetMetaContext(), callback, prefix_,
                          prefix_ + meta_sync_lock_),
         true));
@@ -250,7 +270,7 @@ void EtcdMetaService::retryDaeminWatch(
 
 Status EtcdMetaService::preStart() {
   auto launcher = EtcdLauncher(etcd_spec_);
-  return launcher.LaunchEtcdServer(etcd_, meta_sync_lock_, etcd_proc_);
+  return launcher.LaunchEtcdServer(etcd_, prefix_ + meta_probe_key_, etcd_proc_);
 }
 
 }  // namespace vineyard

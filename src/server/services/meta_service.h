@@ -123,7 +123,7 @@ class IMetaService {
   };
   virtual ~IMetaService() {}
   explicit IMetaService(vs_ptr_t& server_ptr)
-      : server_ptr_(server_ptr), rev_(0), meta_sync_lock_("/meta_sync_lock") {}
+      : server_ptr_(server_ptr), rev_(0), meta_sync_lock_("/meta_sync_lock"), meta_probe_key_("/meta_sync_lock_probe") {}
 
   static std::shared_ptr<IMetaService> Get(vs_ptr_t);
 
@@ -178,6 +178,14 @@ class IMetaService {
   inline void RequestToPersist(
       callback_t<const json&, std::vector<op_t>&> callback_after_ready,
       callback_t<> callback_after_finish) {
+    server_ptr_->GetMetaContext().post([&, callback_after_ready, callback_after_finish]() {
+      RequestToPersistImpl(callback_after_ready, callback_after_finish);
+    });
+  }
+
+  inline void RequestToPersistImpl(
+      callback_t<const json&, std::vector<op_t>&> callback_after_ready,
+      callback_t<> callback_after_finish) {
     // NB: when persist local meta to etcd, we needs the meta_sync_lock_ to
     // avoid contention between other vineyard instances.
     auto start_time = GetCurrentTime();
@@ -187,7 +195,7 @@ class IMetaService {
                                            std::shared_ptr<ILock> lock) {
       auto locked_time = GetCurrentTime();
       VLOG(10) << "request persist: lock use " << (locked_time - start_time)
-               << " seconds";
+               << " seconds, status = " << status.ToString();
       if (status.ok()) {
         requestValues(
             "", [this, locked_time, callback_after_ready, callback_after_finish,
@@ -305,7 +313,7 @@ class IMetaService {
            callback_after_finish](const Status& status,
                                   std::shared_ptr<ILock> lock) {
             if (status.ok()) {
-              rev_ = lock->GetRev();
+              // rev_ = lock->GetRev();
               // commit to etcd
               this->commitUpdates(ops, [this, callback_after_finish, lock](
                                            const Status& status, unsigned rev) {
@@ -418,7 +426,8 @@ class IMetaService {
                 boost::bind(&IMetaService::daemonWatchHandler, this, _1, _2,
                             _3));
             // start heartbeat
-            VINEYARD_DISCARD(this->startHeartbeat(Status::OK()));
+            // VINEYARD_DISCARD(this->startHeartbeat(Status::OK()));
+            remote_lock_ = false;
             // mark meta service as ready
             Ready();
           } else {
@@ -548,6 +557,7 @@ class IMetaService {
     // long-running and no compact Etcd, watching from revision 0 may
     // lead to a super huge amount of events, which is unacceptable.
     auto start_time = GetCurrentTime();
+    VLOG(10) << "request values since " << rev_;
     if (rev_ == 0) {
       requestAll(prefix, rev_,
                  [this, start_time, callback](const Status& status,
@@ -557,7 +567,7 @@ class IMetaService {
                      this->metaUpdate(ops, true);
                      rev_ = rev;
                    }
-                   VLOG(10) << "requst all uses "
+                   VLOG(10) << "request all uses "
                             << (GetCurrentTime() - start_time) << " seconds";
                    return callback(status, meta_, rev_);
                  });
@@ -608,6 +618,9 @@ class IMetaService {
   bool backend_retrying_;
 
   std::string meta_sync_lock_;
+  std::string meta_probe_key_;
+
+  bool remote_lock_ = true;
 
  private:
   virtual Status preStart() { return Status::OK(); }

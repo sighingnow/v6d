@@ -45,13 +45,13 @@ bool validate_advertise_hostname(std::string const& hostname,
 }
 
 Status EtcdLauncher::LaunchEtcdServer(
-    std::unique_ptr<etcd::Client>& etcd_client, std::string& sync_lock,
+    std::unique_ptr<etcd::Client>& etcd_client, const std::string& probe_key,
     std::unique_ptr<boost::process::child>& etcd_proc) {
   std::string const& etcd_endpoint =
       etcd_spec_["etcd_endpoint"].get_ref<std::string const&>();
   etcd_client.reset(new etcd::Client(etcd_endpoint));
 
-  if (probeEtcdServer(etcd_client, sync_lock)) {
+  if (probeEtcdServer(etcd_client, probe_key)) {
     return Status::OK();
   }
 
@@ -81,7 +81,7 @@ Status EtcdLauncher::LaunchEtcdServer(
     LOG(INFO) << "Will not launch an etcd instance.";
     int retries = 0;
     while (retries < max_probe_retries) {
-      if (probeEtcdServer(etcd_client, sync_lock)) {
+      if (probeEtcdServer(etcd_client, probe_key)) {
         break;
       }
       retries += 1;
@@ -157,7 +157,7 @@ Status EtcdLauncher::LaunchEtcdServer(
     while (etcd_proc && etcd_proc->running(err) && !err &&
            retries < max_probe_retries) {
       etcd_client.reset(new etcd::Client(etcd_endpoint));
-      if (probeEtcdServer(etcd_client, sync_lock)) {
+      if (probeEtcdServer(etcd_client, probe_key)) {
         break;
       }
       retries += 1;
@@ -223,8 +223,8 @@ void EtcdLauncher::initHostInfo() {
 
 bool EtcdLauncher::probeEtcdServer(std::unique_ptr<etcd::Client>& etcd_client,
                                    std::string const& key) {
-  // probe: as a 1-limit range request
-  return etcd_client && etcd_client->ls(key, 1).get().is_ok();
+  // probe: as a set request
+  return etcd_client && etcd_client->set(key, "vineyard").get().is_ok();
 }
 
 }  // namespace vineyard

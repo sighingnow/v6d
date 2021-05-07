@@ -173,7 +173,10 @@ class BasicEVFragmentLoader {
       BasicArrowVertexMapBuilder<internal_oid_t, vid_t> vm_builder(
           client_, comm_spec_.fnum(), vertex_label_num_, oid_lists);
 
+      auto start_seal_vm = grape::GetCurrentTime();
       auto vm = vm_builder.Seal(client_);
+      auto finish_seal_vm = grape::GetCurrentTime();
+      LOG(INFO) << "vertexmap seal use: " << (finish_seal_vm - start_seal_vm);
 
       vm_ptr_ =
           std::dynamic_pointer_cast<ArrowVertexMap<internal_oid_t, vid_t>>(
@@ -464,10 +467,17 @@ class BasicEVFragmentLoader {
         comm_spec_.fid(), comm_spec_.fnum(), std::move(output_vertex_tables_),
         std::move(output_edge_tables_), directed_, thread_num));
 
+    auto start_seal = grape::GetCurrentTime();
     auto frag = std::dynamic_pointer_cast<ArrowFragment<oid_t, vid_t>>(
         frag_builder.Seal(client_));
+    auto finish_seal = grape::GetCurrentTime();
 
     VINEYARD_CHECK_OK(client_.Persist(frag->id()));
+    auto persist_time = grape::GetCurrentTime();
+
+    LOG(INFO) << "seal use " << (finish_seal - start_seal)
+              << ", persist use " << (persist_time - finish_seal);
+
     return frag->id();
   }
 
