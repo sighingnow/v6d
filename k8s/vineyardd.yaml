@@ -1,0 +1,307 @@
+# Source: vineyard/templates/etcd.yaml
+# referred from https://github.com/etcd-io/etcd/blob/master/hack/kubernetes-deploy/etcd.yml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-for-vineyard
+  namespace: vineyard-system
+spec:
+  ports:
+  - name: etcd-for-vineyard-port
+    port: 2379
+    protocol: TCP
+    targetPort: 2379
+  selector:
+    app: etcd
+---
+# Source: vineyard/templates/etcd.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    etcd_node: etcd0
+  name: etcd0
+  namespace: vineyard-system
+spec:
+  ports:
+  - name: client
+    port: 2379
+    protocol: TCP
+    targetPort: 2379
+  - name: server
+    port: 2380
+    protocol: TCP
+    targetPort: 2380
+  selector:
+    etcd_node: etcd0
+---
+# Source: vineyard/templates/etcd.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    etcd_node: etcd1
+  name: etcd1
+  namespace: vineyard-system
+spec:
+  ports:
+  - name: client
+    port: 2379
+    protocol: TCP
+    targetPort: 2379
+  - name: server
+    port: 2380
+    protocol: TCP
+    targetPort: 2380
+  selector:
+    etcd_node: etcd1
+---
+# Source: vineyard/templates/etcd.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    etcd_node: etcd2
+  name: etcd2
+  namespace: vineyard-system
+spec:
+  ports:
+  - name: client
+    port: 2379
+    protocol: TCP
+    targetPort: 2379
+  - name: server
+    port: 2380
+    protocol: TCP
+    targetPort: 2380
+  selector:
+    etcd_node: etcd2
+---
+# Source: vineyard/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: vineyard-rpc
+  namespace: vineyard-system
+  labels:
+    helm.sh/chart: vineyard-0.2.1
+    app.kubernetes.io/name: vineyard
+    app.kubernetes.io/instance: vineyard
+    app.kubernetes.io/version: "0.2.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9600
+      targetPort: vineyard-ipc
+      protocol: TCP
+      name: vineyard-ipc
+  selector:
+    app.kubernetes.io/name: vineyard
+    app.kubernetes.io/instance: vineyard
+---
+# Source: vineyard/templates/daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vineyard
+  namespace: vineyard-system
+  labels:
+    helm.sh/chart: vineyard-0.2.1
+    app.kubernetes.io/name: vineyard
+    app.kubernetes.io/instance: vineyard
+    app.kubernetes.io/version: "0.2.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vineyard
+      app.kubernetes.io/instance: vineyard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vineyard
+        app.kubernetes.io/instance: vineyard
+    spec:
+      serviceAccountName: vineyard-server
+      restartPolicy: 
+      containers:
+        - name: vineyard
+          image: "reg.docker.alibaba-inc.com/v6d/vineyardd:hdfs-v20210430"
+          imagePullPolicy: Always
+          command:
+          - /bin/bash
+          - "-c"
+          - |
+            /usr/bin/wait-for-it.sh -t 60 etcd-for-vineyard.vineyard-system.svc.cluster.local:2379;
+            sleep 1;
+            /usr/local/bin/vineyardd \
+              --sync_crds false \
+              --size \
+              8Gi \
+              --etcd_endpoint \
+              "http://etcd-for-vineyard.vineyard-system.svc.cluster.local:2379;http://etcd0.vineyard-system:2379;http://etcd1.vineyard-system:2379;http://etcd2.vineyard-system:2379"
+          env:
+            - name: MY_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MY_HOST_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: ipc
+              containerPort: 9600
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: 9600
+            periodSeconds: 60
+          readinessProbe:
+            exec:
+              command:
+              - ls
+              - /var/run/vineyard.sock
+          resources:
+            {}
+          volumeMounts:
+          - name: run
+            mountPath: /var/run
+          - name: shm
+            mountPath: /dev/shm
+
+      volumes:
+      - name: run
+        hostPath:
+          path: /var/run/vineyard-vineyard-system-vineyard
+      - name: shm
+        emptyDir:
+          medium: Memory
+---
+# Source: vineyard/templates/etcd.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: etcd
+    etcd_node: etcd0
+  name: etcd0
+  namespace: vineyard-system
+spec:
+  containers:
+  - command:
+    - /usr/local/bin/etcd
+    - --name
+    - etcd0
+    - --initial-advertise-peer-urls
+    - http://etcd0:2380
+    - --listen-peer-urls
+    - http://0.0.0.0:2380
+    - --listen-client-urls
+    - http://0.0.0.0:2379
+    - --advertise-client-urls
+    - http://etcd0:2379
+    - --initial-cluster
+    - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+    - --initial-cluster-state
+    - new
+    image: "reg.docker.alibaba-inc.com/v6d/etcd:latest"
+    name: etcd
+    ports:
+    - containerPort: 2379
+      name: client
+      protocol: TCP
+    - containerPort: 2380
+      name: server
+      protocol: TCP
+  restartPolicy: Always
+---
+# Source: vineyard/templates/etcd.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: etcd
+    etcd_node: etcd1
+  name: etcd1
+  namespace: vineyard-system
+spec:
+  containers:
+  - command:
+    - /usr/local/bin/etcd
+    - --name
+    - etcd1
+    - --initial-advertise-peer-urls
+    - http://etcd1:2380
+    - --listen-peer-urls
+    - http://0.0.0.0:2380
+    - --listen-client-urls
+    - http://0.0.0.0:2379
+    - --advertise-client-urls
+    - http://etcd1:2379
+    - --initial-cluster
+    - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+    - --initial-cluster-state
+    - new
+    image: "reg.docker.alibaba-inc.com/v6d/etcd:latest"
+    name: etcd
+    ports:
+    - containerPort: 2379
+      name: client
+      protocol: TCP
+    - containerPort: 2380
+      name: server
+      protocol: TCP
+  restartPolicy: Always
+---
+# Source: vineyard/templates/etcd.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: etcd
+    etcd_node: etcd2
+  name: etcd2
+  namespace: vineyard-system
+spec:
+  containers:
+  - command:
+    - /usr/local/bin/etcd
+    - --name
+    - etcd2
+    - --initial-advertise-peer-urls
+    - http://etcd2:2380
+    - --listen-peer-urls
+    - http://0.0.0.0:2380
+    - --listen-client-urls
+    - http://0.0.0.0:2379
+    - --advertise-client-urls
+    - http://etcd2:2379
+    - --initial-cluster
+    - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
+    - --initial-cluster-state
+    - new
+    image: "reg.docker.alibaba-inc.com/v6d/etcd:latest"
+    name: etcd
+    ports:
+    - containerPort: 2379
+      name: client
+      protocol: TCP
+    - containerPort: 2380
+      name: server
+      protocol: TCP
+  restartPolicy: Always

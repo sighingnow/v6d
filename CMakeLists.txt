@@ -582,7 +582,7 @@ if(BUILD_VINEYARD_BENCHMARKS)
         endif()
 
         target_link_libraries(${B_NAME} PRIVATE
-                              vineyard_client vineyard_basic vineyard_io vineyard_graph
+                              vineyard_client vineyard_basic vineyard_io vineyard_graph vineyard_malloc
                               ${CPPNETLIB_LIBRARIES}
         )
         if(ARROW_SHARED_LIB)

@@ -12,7 +12,8 @@ endif
 BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
 # Image URL to use all building/pushing image targets
-IMG ?= registry-vpc.cn-hongkong.aliyuncs.com/libvineyard/vineyard-controller:latest
+# IMG ?= registry-vpc.cn-hongkong.aliyuncs.com/libvineyard/vineyard-controller:v20210430
+IMG ?= reg.docker.alibaba-inc.com/v6d/vineyard-controller:v20210430
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 

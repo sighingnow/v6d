@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    control-plane: controller-manager
+  name: vineyard-controller-manager
+  namespace: vineyard-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+    spec:
+      tolerations:
+      - effect: NoSchedule
+        key: sigma.ali/resource-pool
+        operator: Equal
+        value: sigma_public
+      - effect: NoSchedule
+        key: sigma.ali/is-ecs
+        operator: Exists
+      containers:
+      - command:
+        - /manager
+        env:
+        - name: GOTRACEBACK
+          value: system
+        image: reg.docker.alibaba-inc.com/v6d/vineyard-controller:v20210430
+        imagePullPolicy: Always
+        name: manager
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+      serviceAccountName: vineyard-manager
+      terminationGracePeriodSeconds: 10

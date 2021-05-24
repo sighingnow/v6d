@@ -6,11 +6,22 @@ replicaCount: 1
 
 image:
   repository: registry-vpc.cn-hongkong.aliyuncs.com/libvineyard/vineyardd
+  # repository: reg.docker.alibaba-inc.com/v6d/vineyardd
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ubuntu
+  tag: hdfs-v20210430
 
-imagePullSecrets: []
+etcd:
+  image:
+    repository: registry-vpc.cn-hongkong.aliyuncs.com/libvineyard/etcd
+    # repository: reg.docker.alibaba-inc.com/v6d/etcd
+    pullPolicy: Always
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: latest
+
+imagePullSecrets:
+- name: pull-acr
+
 nameOverride: ""
 fullnameOverride: ""
 

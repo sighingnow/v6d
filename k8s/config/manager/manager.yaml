@@ -16,6 +16,8 @@ spec:
         control-plane: controller-manager
     spec:
       serviceAccountName: vineyard-manager
+      # imagePullSecrets:
+      # - name: pull-acr
       containers:
       - command:
         - /manager

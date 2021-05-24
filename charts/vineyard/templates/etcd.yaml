@@ -23,6 +23,10 @@ metadata:
     etcd_node: etcd0
   name: etcd0
 spec:
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 2 }}
+  {{- end }}
   containers:
   - command:
     - /usr/local/bin/etcd
@@ -40,7 +44,11 @@ spec:
     - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
     - --initial-cluster-state
     - new
+    {{- if .Values.etcd.image }}
+    image: "{{ .Values.etcd.image.repository }}:{{ .Values.etcd.image.tag }}"
+    {{- else }}
     image: quay.io/coreos/etcd:latest
+    {{- end }}
     name: etcd
     ports:
     - containerPort: 2379
@@ -82,6 +90,10 @@ metadata:
     etcd_node: etcd1
   name: etcd1
 spec:
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 2 }}
+  {{- end }}
   containers:
   - command:
     - /usr/local/bin/etcd
@@ -99,7 +111,11 @@ spec:
     - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
     - --initial-cluster-state
     - new
+    {{- if .Values.etcd.image }}
+    image: "{{ .Values.etcd.image.repository }}:{{ .Values.etcd.image.tag }}"
+    {{- else }}
     image: quay.io/coreos/etcd:latest
+    {{- end }}
     name: etcd
     ports:
     - containerPort: 2379
@@ -141,6 +157,10 @@ metadata:
     etcd_node: etcd2
   name: etcd2
 spec:
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 2 }}
+  {{- end }}
   containers:
   - command:
     - /usr/local/bin/etcd
@@ -158,7 +178,11 @@ spec:
     - etcd0=http://etcd0:2380,etcd1=http://etcd1:2380,etcd2=http://etcd2:2380
     - --initial-cluster-state
     - new
+    {{- if .Values.etcd.image }}
+    image: "{{ .Values.etcd.image.repository }}:{{ .Values.etcd.image.tag }}"
+    {{- else }}
     image: quay.io/coreos/etcd:latest
+    {{- end }}
     name: etcd
     ports:
     - containerPort: 2379
