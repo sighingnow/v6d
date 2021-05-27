@@ -1,3 +1,5 @@
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fsighingnow%2Fv6d.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fsighingnow%2Fv6d?ref=badge_shield)
+
 .. raw:: html
 
     <h1 align="center">
@@ -231,3 +233,7 @@ Thank you in advance for your contributions to vineyard!
    :target: https://v6d.io
 .. |Artifact HUB| image:: https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vineyard
    :target: https://artifacthub.io/packages/helm/vineyard/vineyard
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fsighingnow%2Fv6d.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fsighingnow%2Fv6d?ref=badge_large)
