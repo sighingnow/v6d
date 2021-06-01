@@ -30,10 +30,18 @@ spec:
       {{- end }}
       containers:
         - name: {{ .Chart.Name }}
+          {{- if .Values.image.tagPrefix }}
+          {{- if .Values.image.tag }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tagPrefix }}-{{ .Values.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tagPrefix }}-v{{ default .Chart.AppVersion }}"
+          {{- end }}
+          {{- else }}
           {{- if .Values.image.tag }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           {{- else }}
           image: "{{ .Values.image.repository }}:v{{ default .Chart.AppVersion }}"
+          {{- end }}
           {{- end }}
           {{- if .Values.image.pullPolicy }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
