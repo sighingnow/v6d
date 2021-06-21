@@ -25,6 +25,7 @@ on:
 
 jobs:
   build:
+    environment: github-actions
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
