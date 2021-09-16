@@ -25,12 +25,15 @@ limitations under the License.
 #include "client/client.h"
 #include "client/ds/object_meta.h"
 #include "common/util/logging.h"
+#include "msgpack/packed_object.h"
 
 using namespace vineyard;  // NOLINT(build/namespaces)
+using vineyard::msgpack::PackedObject;
+using vineyard::msgpack::VBuffer;
 
 int main(int argc, char** argv) {
   if (argc < 2) {
-    printf("usage ./array_test <ipc_socket>");
+    printf("usage ./msgpack_test <ipc_socket>");
     return 1;
   }
   std::string ipc_socket = std::string(argv[1]);
@@ -43,31 +46,12 @@ int main(int argc, char** argv) {
   ArrayBuilder<double> builder(client, double_array);
   auto sealed_double_array =
       std::dynamic_pointer_cast<Array<double>>(builder.Seal(client));
-
   LOG(INFO) << "successfully sealed...";
-  ObjectID id = sealed_double_array->id();
 
-  CHECK(!sealed_double_array->IsPersist());
-  CHECK(sealed_double_array->IsLocal());
+  PackedObject packed(sealed_double_array);
 
-  VINEYARD_CHECK_OK(sealed_double_array->Persist(client));
-  LOG(INFO) << "successfully persisted...";
 
-  CHECK(sealed_double_array->IsPersist());
-  CHECK(sealed_double_array->IsLocal());
-
-  auto vy_double_array =
-      std::dynamic_pointer_cast<Array<double>>(client.GetObject(id));
-  LOG(INFO) << "successfully obtained...";
-
-  CHECK_EQ(sealed_double_array->size(), double_array.size());
-  CHECK_EQ(vy_double_array->size(), double_array.size());
-  for (size_t i = 0; i < double_array.size(); ++i) {
-    CHECK_EQ((*sealed_double_array)[i], double_array[i]);
-    CHECK_EQ((*vy_double_array)[i], double_array[i]);
-  }
-
-  LOG(INFO) << "Passed double array tests...";
+  LOG(INFO) << "Passed msgpack array tests...";
 
   client.Disconnect();
 

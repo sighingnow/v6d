@@ -30,4 +30,7 @@
 	path = thirdparty/ctti
 	url = https://github.com/Manu343726/ctti.git
 	shallow = true
-
+[submodule "thirdparty/msgpack"]
+	path = thirdparty/msgpack
+	url = https://github.com/msgpack/msgpack-c.git
+	shallow = true
