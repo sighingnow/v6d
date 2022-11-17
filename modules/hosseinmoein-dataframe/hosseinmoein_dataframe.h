@@ -107,7 +107,7 @@ class HDataFrameBuilder : public vineyard::ObjectBuilder {
     return Status::OK();
   }
 
-  void Put(StdDataFrame<T>& df) { this->df = df; }
+  void Put(StdDataFrame<T>const & df) { this->df = df; }
 
   std::shared_ptr<Object> _Seal(Client& client) override;
 };
