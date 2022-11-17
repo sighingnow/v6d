@@ -8,9 +8,9 @@ target_link_libraries(vineyard_malloc PUBLIC vineyard_client)
 
 # requires mimalloc
 if(APPLE)
-    target_link_libraries(vineyard_malloc PRIVATE -Wl,-all_load mimalloc-static)
+    target_link_options(vineyard_malloc PRIVATE -Wl,-all_load $<TARGET_FILE:mimalloc-static>)
 else()
-    target_link_libraries(vineyard_malloc PRIVATE -Wl,--whole-archive mimalloc-static -Wl,--no-whole-archive)
+    target_link_options(vineyard_malloc PRIVATE -Wl,--whole-archive $<TARGET_FILE:mimalloc-static> -Wl,--no-whole-archive)
 endif()
 
 if(BUILD_VINEYARD_MALLOC_OVERRIDE)

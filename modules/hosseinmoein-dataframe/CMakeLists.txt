@@ -12,7 +12,13 @@ target_add_debuginfo(vineyard_hosseinmoein_dataframe)
 set_property(TARGET vineyard_hosseinmoein_dataframe PROPERTY CXX_STANDARD 17)
 target_link_libraries(vineyard_hosseinmoein_dataframe PUBLIC vineyard_client
                                                              vineyard_basic)
-target_link_libraries(vineyard_hosseinmoein_dataframe PRIVATE DataFrame::DataFrame)
+if(APPLE)
+    target_link_options(vineyard_hosseinmoein_dataframe PRIVATE -Wl,-all_load $<TARGET_FILE:DataFrame::DataFrame>)
+else()
+    target_link_options(vineyard_hosseinmoein_dataframe PRIVATE -Wl,--whole-archive $<TARGET_FILE:DataFrame::DataFrame> -Wl,--no-whole-archive)
+endif()
+
+# target_link_libraries(vineyard_hosseinmoein_dataframe PRIVATE DataFrame::DataFrame)
 target_include_directories(vineyard_hosseinmoein_dataframe PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/DataFrame/include>
     $<INSTALL_INTERFACE:include/vineyard/contrib>
