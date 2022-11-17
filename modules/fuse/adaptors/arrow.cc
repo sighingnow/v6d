@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#include "fuse/adaptors/arrow_ipc/serializer_registry.h"
+#include "fuse/adaptors/arrow.h"
 
 #include <algorithm>
 #include <limits>
@@ -24,7 +24,6 @@ limitations under the License.
 #include "arrow/api.h"
 #include "arrow/io/api.h"
 #include "arrow/ipc/api.h"
-#include "arrow/ipc/reader.h"
 
 #include "basic/ds/arrow.h"
 #include "basic/ds/arrow_utils.h"
@@ -90,22 +89,24 @@ std::shared_ptr<arrow::Buffer> arrow_view(
 
 static void from_arrow_view(Client* client, std::string const& path,
                             arrow::io::RandomAccessFile* fp) {
-  std::shared_ptr<arrow::ipc::RecordBatchStreamReader> reader;
+  std::shared_ptr<arrow::ipc::RecordBatchFileReader> reader;
   CHECK_ARROW_ERROR_AND_ASSIGN(reader,
-                               arrow::ipc::RecordBatchStreamReader::Open(fp));
+                               arrow::ipc::RecordBatchFileReader::Open(fp));
+
+  std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+  for (int64_t index = 0; index < reader->num_record_batches(); ++index) {
+    std::shared_ptr<arrow::RecordBatch> batch;
+    CHECK_ARROW_ERROR_AND_ASSIGN(batch, reader->ReadRecordBatch(index));
+    batches.emplace_back(batch);
+  }
 
   std::shared_ptr<arrow::Table> table;
-  std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
-
-  VINEYARD_CHECK_OK(reader->ReadAll(&batches));
-
   VINEYARD_CHECK_OK(RecordBatchesToTable(batches, &table));
 
   // build it into vineyard
   TableBuilder builder(*client, table);
   auto tb = builder.Seal(*client);
   VINEYARD_CHECK_OK(client->Persist(tb->id()));
-  DLOG(INFO) << tb->meta().ToString();
   VINEYARD_CHECK_OK(client->PutName(
       tb->id(), path.substr(1, path.length() - 6 /* .arrow */ - 1)));
 }
