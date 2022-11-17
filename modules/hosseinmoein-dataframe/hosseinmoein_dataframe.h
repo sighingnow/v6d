@@ -42,6 +42,12 @@ using namespace hmdf;  // NOLINT(build/namespaces)
     df.load_index(std::move(vec));                                           \
   } while (0)
 
+#define LOAD_DUMMY_INDEX_FROM_VINEYARD_TO_SDF(T, num_rows)                         \
+  do {                                                                       \
+    std::vector<T> vec(num_rows);                                            \
+    df.load_index(std::move(vec));                                           \
+  } while (0)
+
 #define LOAD_COLUMN_FROM_VINEYARD_TO_SDF(type, filed_name)                   \
   do {                                                                       \
     auto df_col =                                                            \
@@ -67,6 +73,13 @@ using namespace hmdf;  // NOLINT(build/namespaces)
 namespace vineyard {
 
 template <typename T>
+StdDataFrame<T> ToHDataFrame(
+    Client& client, std::shared_ptr<vineyard::DataFrame> const& vineyard_df);
+
+template <typename T>
+StdDataFrame<T> ToHDataFrame(Client& client, ObjectID const& object_id);
+
+template <typename T>
 class HDataFrameBuilder;
 
 template <typename T>
@@ -85,7 +98,9 @@ class HDataFrame : public vineyard::Registered<HDataFrame<T>> {
     this->vineyard_df_id = meta.GetKeyValue<uint64_t>("vineyard_df_id");
   }
 
-  StdDataFrame<T> Resolve(Client& client);
+  StdDataFrame<T> Resolve(Client& client) {
+    return ToHDataFrame<T>(client, this->vineyard_df_id);
+  }
 
   friend class HDataFrameBuilder<T>;
 };
@@ -107,36 +122,39 @@ class HDataFrameBuilder : public vineyard::ObjectBuilder {
     return Status::OK();
   }
 
-  void Put(StdDataFrame<T>const & df) { this->df = df; }
+  void Put(StdDataFrame<T> const& df) { this->df = df; }
 
   std::shared_ptr<Object> _Seal(Client& client) override;
 };
 
 template <typename T>
-StdDataFrame<T> HDataFrame<T>::Resolve(Client& client) {
-  auto vineyard_df = std::dynamic_pointer_cast<vineyard::DataFrame>(
-      client.GetObject(vineyard_df_id));
+StdDataFrame<T> ToHDataFrame(
+    Client& client, std::shared_ptr<vineyard::DataFrame> const& vineyard_df) {
+  StdDataFrame<T> df;
+
   int64_t num_rows = vineyard_df->shape().first;
   size_t num_columns = vineyard_df->shape().second;
 
-  /* Fill the index data from vineyard::DataFrame to StdDataFrame. */
-  switch (vineyard_df->Index()->value_type()) {
-  case AnyType::Int32:
-  case AnyType::Int64:
-  case AnyType::UInt32:
-  case AnyType::UInt64:
-  case AnyType::Double:
-  case AnyType::Float: {
-    LOAD_INDEX_FROM_VINEYARD_TO_SDF(T, num_rows);
-    break;
-  }
-  default: {
-    LOG(INFO) << __func__ << std::endl;
-    LOG(INFO) << "The support of this type: "
-              << vineyard_df->Index()->value_type() << " need to be finished."
-              << std::endl;
-  }
-  }
+  // FIXME: index may not exists
+  // /* Fill the index data from vineyard::DataFrame to StdDataFrame. */
+  // switch (vineyard_df->Index()->value_type()) {
+  // case AnyType::Int32:
+  // case AnyType::Int64:
+  // case AnyType::UInt32:
+  // case AnyType::UInt64:
+  // case AnyType::Double:
+  // case AnyType::Float: {
+  //   LOAD_INDEX_FROM_VINEYARD_TO_SDF(T, num_rows);
+  //   break;
+  // }
+  // default: {
+  //   LOG(INFO) << __func__ << std::endl;
+  //   LOG(INFO) << "The support of this type: "
+  //             << vineyard_df->Index()->value_type() << " need to be finished."
+  //             << std::endl;
+  // }
+  // }
+  LOAD_DUMMY_INDEX_FROM_VINEYARD_TO_SDF(T, num_rows);
 
   /* Fill the column data from vineyard::DataFrame to StdDataFrame. */
   for (size_t i = 0; i < num_columns; i++) {
@@ -184,6 +202,13 @@ StdDataFrame<T> HDataFrame<T>::Resolve(Client& client) {
   }
 
   return df;
+}
+
+template <typename T>
+StdDataFrame<T> ToHDataFrame(Client& client, ObjectID const& object_id) {
+  auto vineyard_df = std::dynamic_pointer_cast<vineyard::DataFrame>(
+      client.GetObject(object_id));
+  return ToHDataFrame<T>(client, vineyard_df);
 }
 
 template <typename T>
