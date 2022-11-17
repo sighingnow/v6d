@@ -99,23 +99,32 @@ def torch_create_global_dataframe(
 
 def torch_tensor_resolver(obj):
     meta = obj.meta
-    data_shape = from_json(meta['data_shape_'])
-    label_shape = from_json(meta['label_shape_'])
-    data_name = meta['data_type_']
-    label_name = meta['label_type_']
-    data_type = normalize_dtype(data_name, meta.get('value_type_meta_', None))
-    label_type = normalize_dtype(label_name, meta.get('value_type_meta_', None))
-    data = torch.from_numpy(
-        np.frombuffer(memoryview(obj.member('buffer_data_')), dtype=data_type).reshape(
-            data_shape
+    if 'data_type_' in meta and 'label_type_' in meta:
+        data_shape = from_json(meta['data_shape_'])
+        label_shape = from_json(meta['label_shape_'])
+        data_name = meta['data_type_']
+        label_name = meta['label_type_']
+        data_type = normalize_dtype(data_name, meta.get('value_type_meta_', None))
+        label_type = normalize_dtype(label_name, meta.get('value_type_meta_', None))
+        data = torch.from_numpy(
+            np.frombuffer(memoryview(obj.member('buffer_data_')), dtype=data_type).reshape(
+                data_shape
+            )
         )
-    )
-    label = torch.from_numpy(
-        np.frombuffer(
-            memoryview(obj.member('buffer_label_')), dtype=label_type
-        ).reshape(label_shape)
-    )
-    return torch.utils.data.TensorDataset(data, label)
+        label = torch.from_numpy(
+            np.frombuffer(
+                memoryview(obj.member('buffer_label_')), dtype=label_type
+            ).reshape(label_shape)
+        )
+        return torch.utils.data.TensorDataset(data, label)
+    else:
+        shape = from_json(meta['shape_'])
+        data_type = normalize_dtype(meta['value_type_'], meta.get('value_type_meta_', None))
+        return torch.from_numpy(
+            np.frombuffer(memoryview(obj.member('buffer_')), dtype=data_type).reshape(
+                shape
+            )
+        )
 
 
 def torch_dataframe_resolver(obj, **kw):
