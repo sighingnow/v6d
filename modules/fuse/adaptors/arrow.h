@@ -36,7 +36,7 @@ std::shared_ptr<arrow::Buffer> arrow_view(std::shared_ptr<vineyard::Table>& df);
 void from_arrow_view(Client* client, std::string const& name,
                      std::shared_ptr<arrow::BufferBuilder> buffer);
 
-void from_arrow_view(Client* client, std::string const& path,
+void from_arrow_view(Client* client, std::string const& name,
                      std::shared_ptr<arrow::Buffer> buffer);
 
 }  // namespace fuse

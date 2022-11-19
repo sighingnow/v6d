@@ -87,7 +87,7 @@ std::shared_ptr<arrow::Buffer> arrow_view(
   return view(estimate_size, batches);
 }
 
-static void from_arrow_view(Client* client, std::string const& path,
+static void from_arrow_view(Client* client, std::string const& name,
                             arrow::io::RandomAccessFile* fp) {
   std::shared_ptr<arrow::ipc::RecordBatchFileReader> reader;
   CHECK_ARROW_ERROR_AND_ASSIGN(reader,
@@ -107,24 +107,23 @@ static void from_arrow_view(Client* client, std::string const& path,
   TableBuilder builder(*client, table);
   auto tb = builder.Seal(*client);
   VINEYARD_CHECK_OK(client->Persist(tb->id()));
-  VINEYARD_CHECK_OK(client->PutName(
-      tb->id(), path.substr(1, path.length() - 6 /* .arrow */ - 1)));
+  VINEYARD_CHECK_OK(client->PutName(tb->id(), name));
 }
 
-void from_arrow_view(Client* client, std::string const& path,
+void from_arrow_view(Client* client, std::string const& name,
                      std::shared_ptr<arrow::BufferBuilder> buffer) {
   // recover table from buffer
   auto fp = std::make_shared<arrow::io::BufferReader>(buffer->data(),
                                                       buffer->length());
-  from_arrow_view(client, path, fp.get());
+  from_arrow_view(client, name, fp.get());
 }
 
-void from_arrow_view(Client* client, std::string const& path,
+void from_arrow_view(Client* client, std::string const& name,
                      std::shared_ptr<arrow::Buffer> buffer) {
   // recover table from buffer
   auto fp =
       std::make_shared<arrow::io::BufferReader>(buffer->data(), buffer->size());
-  from_arrow_view(client, path, fp.get());
+  from_arrow_view(client, name, fp.get());
 }
 
 }  // namespace fuse

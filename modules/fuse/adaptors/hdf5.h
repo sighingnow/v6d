@@ -13,10 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#ifndef MODULES_FUSE_ADAPTORS_PARQUET_H_
-#define MODULES_FUSE_ADAPTORS_PARQUET_H_
+#ifndef MODULES_FUSE_ADAPTORS_HDF5_H_
+#define MODULES_FUSE_ADAPTORS_HDF5_H_
 
-#if defined(WITH_PARQUET)
+#if defined(WITH_HDF5)
 
 #include <memory>
 
@@ -26,24 +26,18 @@ limitations under the License.
 namespace vineyard {
 namespace fuse {
 
-std::shared_ptr<arrow::Buffer> parquet_view(
-    std::shared_ptr<vineyard::DataFrame>& df);
+std::shared_ptr<arrow::Buffer> hdf5_view(
+    std::shared_ptr<vineyard::ITensor>& tensor);
 
-std::shared_ptr<arrow::Buffer> parquet_view(
-    std::shared_ptr<vineyard::RecordBatch>& df);
+void from_hdf5_view(Client* client, std::string const& name,
+                    std::shared_ptr<arrow::BufferBuilder> buffer);
 
-std::shared_ptr<arrow::Buffer> parquet_view(
-    std::shared_ptr<vineyard::Table>& df);
-
-void from_parquet_view(Client* client, std::string const& name,
-                       std::shared_ptr<arrow::BufferBuilder> buffer);
-
-void from_parquet_view(Client* client, std::string const& name,
-                       std::shared_ptr<arrow::Buffer> buffer);
+void from_hdf5_view(Client* client, std::string const& name,
+                    std::shared_ptr<arrow::Buffer> buffer);
 
 }  // namespace fuse
 }  // namespace vineyard
 
-#endif
+#endif  // WITH_HDF5
 
-#endif  // MODULES_FUSE_ADAPTORS_PARQUET_H_
+#endif  // MODULES_FUSE_ADAPTORS_HDF5_H_

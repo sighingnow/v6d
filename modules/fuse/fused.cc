@@ -35,23 +35,78 @@ namespace fuse {
 
 struct fs::fs_state_t fs::state {};
 
+static std::string name_from_path(std::string const& path,
+                                  std::string const& suffix) {
+  return path.substr(
+      1, path.length() - suffix.length() /* .arrow/.parquet/.h5 */ - 1);
+}
+
 static std::string name_from_path(std::string const& path) {
-  return path.substr(1, path.length() - 6 /* .arrow */ - 1);
+  if (boost::algorithm::ends_with(path, ".arrow")) {
+    return name_from_path(path, ".arrow");
+  } else if (boost::algorithm::ends_with(path, ".parquet")) {
+    return name_from_path(path, ".parquet");
+  }
+  if (boost::algorithm::ends_with(path, ".h5")) {
+    return name_from_path(path, ".h5");
+  } else {
+    return "";
+  }
+}
+
+static inline bool ends_with(std::string const& value,
+                             std::string const& ending) {
+  if (ending.size() > value.size())
+    return false;
+  return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
 
 static std::shared_ptr<arrow::Buffer> generate_fuse_view(
-    std::shared_ptr<Object> object) {
-  if (auto dataframe = std::dynamic_pointer_cast<vineyard::DataFrame>(object)) {
-    return fuse::arrow_view(dataframe);
-  } else if (auto recordbatch =
-                 std::dynamic_pointer_cast<vineyard::RecordBatch>(object)) {
-    return fuse::arrow_view(recordbatch);
-  } else if (auto table = std::dynamic_pointer_cast<vineyard::Table>(object)) {
-    return fuse::arrow_view(table);
+    std::string const& path, std::shared_ptr<Object> object) {
+  if (ends_with(path, ".arrow")) {
+    if (auto dataframe =
+            std::dynamic_pointer_cast<vineyard::DataFrame>(object)) {
+      return fuse::arrow_view(dataframe);
+    } else if (auto recordbatch =
+                   std::dynamic_pointer_cast<vineyard::RecordBatch>(object)) {
+      return fuse::arrow_view(recordbatch);
+    } else if (auto table =
+                   std::dynamic_pointer_cast<vineyard::Table>(object)) {
+      return fuse::arrow_view(table);
+    }
+  } else if (ends_with(path, ".parquet")) {
+    if (auto dataframe =
+            std::dynamic_pointer_cast<vineyard::DataFrame>(object)) {
+      return fuse::parquet_view(dataframe);
+    } else if (auto recordbatch =
+                   std::dynamic_pointer_cast<vineyard::RecordBatch>(object)) {
+      return fuse::parquet_view(recordbatch);
+    } else if (auto table =
+                   std::dynamic_pointer_cast<vineyard::Table>(object)) {
+      return fuse::parquet_view(table);
+    }
+  } else if (ends_with(path, ".h5")) {
+    if (auto tensor = std::dynamic_pointer_cast<vineyard::ITensor>(object)) {
+      return fuse::hdf5_view(tensor);
+    }
   }
+
   VINEYARD_ASSERT(
       false, "Unsupported vineyard data type: " + object->meta().GetTypeName());
   return nullptr;
+}
+
+static void build_from_fuse_view(Client* client, std::string const& path,
+                                 std::shared_ptr<arrow::BufferBuilder> buffer) {
+  if (ends_with(path, ".arrow")) {
+    fuse::from_arrow_view(client, name_from_path(path, ".arrow"), buffer);
+  } else if (ends_with(path, ".parquet")) {
+    fuse::from_parquet_view(client, name_from_path(path, ".parquet"), buffer);
+  } else if (ends_with(path, ".h5")) {
+    fuse::from_hdf5_view(client, name_from_path(path, ".h5"), buffer);
+  } else {
+    VINEYARD_ASSERT(false, "Unsupported vineyard file type: " + path);
+  }
 }
 
 int fs::fuse_getattr(const char* path, struct stat* stbuf,
@@ -86,11 +141,12 @@ int fs::fuse_getattr(const char* path, struct stat* stbuf,
 
   {
     std::string path_string(path);
-    if (!boost::algorithm::ends_with(path_string, ".arrow")) {
+    std::string target_name = name_from_path(path_string);
+    if (target_name.empty()) {
       return -ENOENT;
     }
     ObjectID target = InvalidObjectID();
-    auto status = state.client->GetName(name_from_path(path), target);
+    auto status = state.client->GetName(target_name, target);
     if (!status.ok()) {
       return -ENOENT;
     }
@@ -100,7 +156,7 @@ int fs::fuse_getattr(const char* path, struct stat* stbuf,
       return -ENOENT;
     }
 
-    auto buffer = generate_fuse_view(state.client->GetObject(target));
+    auto buffer = generate_fuse_view(path, state.client->GetObject(target));
     state.views.emplace(path, buffer);
     stbuf->st_size = buffer->size();
     return 0;
@@ -117,7 +173,11 @@ int fs::fuse_open(const char* path, struct fuse_file_info* fi) {
 
   std::string path_string(path);
   ObjectID target = InvalidObjectID();
-  VINEYARD_CHECK_OK(state.client->GetName(name_from_path(path_string), target));
+  std::string target_name = name_from_path(path_string);
+  if (target_name.empty()) {
+    return -ENOENT;
+  }
+  VINEYARD_CHECK_OK(state.client->GetName(target_name, target));
 
   auto object = state.client->GetObject(target);
   if (object == nullptr) {
@@ -125,7 +185,7 @@ int fs::fuse_open(const char* path, struct fuse_file_info* fi) {
   }
   auto loc = state.views.find(path_string);
   if (loc == state.views.end()) {
-    auto buffer = generate_fuse_view(state.client->GetObject(target));
+    auto buffer = generate_fuse_view(path, state.client->GetObject(target));
     state.views[path_string] = buffer;
   }
   // bypass kernel's page cache to avoid knowing the size in `getattr`.
@@ -176,7 +236,9 @@ int fs::fuse_write(const char* path, const char* buf, size_t size, off_t offset,
     VINEYARD_CHECK_OK(buffer->Reserve(offset + size));
   }
   memcpy(buffer->mutable_data() + offset, buf, size);
-  buffer->UnsafeAdvance(size);
+  if (static_cast<int64_t>(offset + size) > buffer->length()) {
+    buffer->UnsafeAdvance((offset + size) - buffer->length());
+  }
   return size;
 }
 
@@ -206,7 +268,7 @@ int fs::fuse_release(const char* path, struct fuse_file_info*) {
   {
     auto loc = state.mutable_views.find(path);
     if (loc != state.mutable_views.end()) {
-      fuse::from_arrow_view(state.client.get(), loc->first, loc->second);
+      build_from_fuse_view(state.client.get(), loc->first, loc->second);
       loc->second->Reset();
       state.mutable_views.erase(loc);
       return 0;
@@ -238,22 +300,41 @@ int fs::fuse_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
   filler(buf, ".", NULL, 0, fuse_fill_dir_flags::FUSE_FILL_DIR_PLUS);
   filler(buf, "..", NULL, 0, fuse_fill_dir_flags::FUSE_FILL_DIR_PLUS);
 
+  std::vector<std::string> supported_types{
+      "vineyard::DataFrame",
+      "vineyard::RecordBatch",
+      "vineyard::Table",
+      "vineyard::Tensor*",
+  };
+
   std::unordered_map<ObjectID, json> metas{};
-  VINEYARD_CHECK_OK(state.client->ListData(
-      "vineyard::DataFrame", false, std::numeric_limits<size_t>::max(), metas));
-  VINEYARD_CHECK_OK(state.client->ListData("vineyard::RecordBatch", false,
-                                           std::numeric_limits<size_t>::max(),
-                                           metas));
-  VINEYARD_CHECK_OK(state.client->ListData(
-      "vineyard::Table", false, std::numeric_limits<size_t>::max(), metas));
+  for (auto const& type : supported_types) {
+    VINEYARD_CHECK_OK(state.client->ListData(
+        type, false, std::numeric_limits<size_t>::max(), metas));
+  }
 
   for (auto const& item : metas) {
     // std::string base = ObjectIDToString(item.first) + ".arrow";
     // filler(buf, base.c_str(), NULL, 0,
     // fuse_fill_dir_flags::FUSE_FILL_DIR_PLUS);
-    if (item.second.contains("__name")) {
-      std::string base = item.second["__name"].get<std::string>() + ".arrow";
-      filler(buf, base.c_str(), NULL, 0,
+
+    // only filling those objects with names.
+    if (!item.second.contains("__name")) {
+      continue;
+    }
+    std::string name = item.second["__name"].get<std::string>();
+    std::string type = item.second["typename"].get<std::string>();
+    if (type == "vineyard::DataFrame" || type == "vineyard::Table" ||
+        type == "vineyard::RecordBatch") {
+      std::string parquet_name = name + ".parquet";
+      std::string arrow_name = name + ".arrow";
+      filler(buf, parquet_name.c_str(), NULL, 0,
+             fuse_fill_dir_flags::FUSE_FILL_DIR_PLUS);
+      filler(buf, arrow_name.c_str(), NULL, 0,
+             fuse_fill_dir_flags::FUSE_FILL_DIR_PLUS);
+    } else if (type.find_first_of("vineyard::Tensor") == 0) {
+      std::string hdf5_name = name + ".h5";
+      filler(buf, hdf5_name.c_str(), NULL, 0,
              fuse_fill_dir_flags::FUSE_FILL_DIR_PLUS);
     }
   }
@@ -264,10 +345,9 @@ void* fs::fuse_init(struct fuse_conn_info* conn, struct fuse_config* cfg) {
   VLOG(2) << "fuse: initfs with vineyard socket " << state.vineyard_socket;
 
   state.client.reset(new vineyard::Client());
-  state.client->Connect(state.vineyard_socket);
+  VINEYARD_CHECK_OK(state.client->Connect(state.vineyard_socket));
 
   fuse_apply_conn_info_opts(state.conn_opts, conn);
-  conn->max_read = conn->max_readahead;
 
   cfg->kernel_cache = 0;
   return NULL;

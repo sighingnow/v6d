@@ -45,6 +45,9 @@ option(BUILD_VINEYARD_MALLOC "Build vineyard's implementation for client-side ma
 option(BUILD_VINEYARD_MALLOC_OVERRIDE "Using the client-side malloc to override the default ones" OFF)
 option(BUILD_VINEYARD_FUSE "Enable vineyard's fuse support" OFF)
 option(BUILD_VINEYARD_FUSE_PARQUET "Enable vineyard's fuse parquet support" OFF)
+option(BUILD_VINEYARD_FUSE_ORC "Enable vineyard's fuse orc support" OFF)
+option(BUILD_VINEYARD_FUSE_HDF5 "Enable vineyard's fuse hdf5 support" OFF)
+option(BUILD_VINEYARD_FUSE_NPY "Enable vineyard's fuse npy support" OFF)
 option(BUILD_VINEYARD_HOSSEINMOEIN_DATAFRAME "Enable hosseinmoein dataframe support" OFF)
 
 option(BUILD_VINEYARD_TESTS "Generate make targets for vineyard tests" ON)
