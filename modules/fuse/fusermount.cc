@@ -80,6 +80,14 @@ static int process_args(struct fuse_args& args, int argc, char** argv) {
   // force running as foreground mode
   assert(fuse_opt_add_arg(&args, "-f") == 0);
 
+  // allow other
+  assert(fuse_opt_add_arg(&args, "-oallowother") == 0);
+
+  // max read/write size
+  assert(fuse_opt_add_arg(&args, "-omax_read=2147483648") == 0);
+  assert(fuse_opt_add_arg(&args, "-omax_readahead=2147483648") == 0);
+  assert(fuse_opt_add_arg(&args, "-omax_write=2147483648") == 0);
+
   // populate state
   vineyard::fuse::fs::state.vineyard_socket = options.vineyard_socket;
   return 0;
