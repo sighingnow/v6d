@@ -526,11 +526,14 @@ class BasicEVFragmentLoader {
         comm_spec_.fid(), comm_spec_.fnum(), std::move(output_vertex_tables_),
         std::move(output_edge_tables_), directed_, thread_num));
 
+    double start_time = GetCurrentTime();
     auto frag =
         std::dynamic_pointer_cast<ArrowFragment<oid_t, vid_t, vertex_map_t>>(
             frag_builder.Seal(client_));
 
     VINEYARD_CHECK_OK(client_.Persist(frag->id()));
+    VLOG(10) << "seal + persist fragment " << frag->id() << " use "
+             << (GetCurrentTime() - start_time) << "s";
     return frag->id();
   }
 
