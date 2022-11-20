@@ -30,7 +30,7 @@ def buffer_builder(client, buffer, builder):
         return client.create_empty_blob()
     existing = client.find_shared_memory(buffer.address)
     if existing is not None:
-        return existing
+        return client.get_meta(existing)
     builder = client.create_blob(len(buffer))
     builder.copy(0, buffer.address, len(buffer))
     return builder.seal(client)

@@ -124,7 +124,7 @@ def build_buffer(client, address, size):
         return client.create_empty_blob()
     existing = client.find_shared_memory(address)
     if existing is not None:
-        return existing
+        return client.get_meta(existing)
     buffer = client.create_blob(size)
     buffer.copy(0, address, size)
     return buffer.seal(client)

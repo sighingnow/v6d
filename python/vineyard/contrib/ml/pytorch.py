@@ -33,21 +33,22 @@ from vineyard.data.utils import to_json
 
 
 def torch_tensor_builder(client, value, **kw):
-    meta = ObjectMeta()
-    meta['typename'] = 'vineyard::Tensor'
-    meta['partition_index_'] = to_json(kw.get('partition_index', []))
-    data = value
-    data = DataLoader(data, batch_size=len(value))
-    for x, y in data:
-        meta.add_member('buffer_data_', build_numpy_buffer(client, x.numpy()))
-        meta.add_member('buffer_label_', build_numpy_buffer(client, y.numpy()))
-        meta['data_shape_'] = to_json(x.numpy().shape)
-        meta['label_shape_'] = to_json(y.numpy().shape)
-        meta['data_type_'] = x.numpy().dtype.name
-        meta['label_type_'] = y.numpy().dtype.name
-        meta['data_type_meta_'] = x.numpy().dtype.str
-        meta['label_type_meta_'] = y.numpy().dtype.str
-    return client.create_metadata(meta)
+    # meta = ObjectMeta()
+    # meta['typename'] = 'vineyard::Tensor'
+    # meta['partition_index_'] = to_json(kw.get('partition_index', []))
+    # data = value
+    # data = DataLoader(data, batch_size=len(value))
+    # for x, y in data:
+    #     meta.add_member('buffer_data_', build_numpy_buffer(client, x.numpy()))
+    #     meta.add_member('buffer_label_', build_numpy_buffer(client, y.numpy()))
+    #     meta['data_shape_'] = to_json(x.numpy().shape)
+    #     meta['label_shape_'] = to_json(y.numpy().shape)
+    #     meta['data_type_'] = x.numpy().dtype.name
+    #     meta['label_type_'] = y.numpy().dtype.name
+    #     meta['data_type_meta_'] = x.numpy().dtype.str
+    #     meta['label_type_meta_'] = y.numpy().dtype.str
+    # return client.create_metadata(meta)
+    return client.put(value.numpy())
 
 
 def torch_dataframe_builder(client, value, builder, **kw):
@@ -182,6 +183,7 @@ def torch_global_dataframe_resolver(obj, resolver, **_kw):
 def register_torch_types(builder_ctx, resolver_ctx):
 
     if builder_ctx is not None:
+        builder_ctx.register(torch.Tensor, torch_tensor_builder)
         builder_ctx.register(Dataset, torch_builder)
 
     if resolver_ctx is not None:
