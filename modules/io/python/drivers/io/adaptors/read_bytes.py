@@ -168,13 +168,13 @@ def read_bytes(  # noqa: C901, pylint: disable=too-many-statements
                 offset = 0
                 # Only process header line when processing first file
                 # And open the writer when processing first file
-                if index == 0:
+                if index == 0 or True:
                     if header_row:
                         header_line = read_block(fp, 0, 1, read_block_delimiter)
                         params["header_line"] = header_line.decode("unicode_escape")
+                        offset = len(header_line)
                         if header_line[0:3] == b'\xef\xbb\xbf':
                             header_line = header_line[3:]
-                        offset = len(header_line)
                     stream = ByteStream.new(client, params)
                     client.persist(stream.id)
                     report_success(stream.id)

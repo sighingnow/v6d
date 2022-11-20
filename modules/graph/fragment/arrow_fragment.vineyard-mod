@@ -760,6 +760,8 @@ class [[vineyard]] ArrowFragment
         continue;
       }
       for (prop_id_t j = 0; j < prop_num; ++j) {
+        // LOG(INFO) << "edge table " << i << ", j = " << j << edge_tables_[i]->column(j)
+        //           << " " << edge_tables_[i]->column(j)->num_chunks();
         edge_tables_columns_[i][j] =
             get_arrow_array_data(edge_tables_[i]->column(j)->chunk(0));
       }
@@ -768,13 +770,18 @@ class [[vineyard]] ArrowFragment
 
     vertex_tables_columns_.resize(vertex_label_num_);
     for (label_id_t i = 0; i < vertex_label_num_; ++i) {
+      // LOG(INFO) << "vertex table i get meta: " << vertex_tables_[i]->meta().ToString();
       auto vertex_table = vertex_tables_[i]->GetTable();
+      // LOG(INFO) << "vertex table " << i << " props " << vertex_tables_[i]->num_columns();
       prop_id_t prop_num = static_cast<prop_id_t>(vertex_table->num_columns());
       vertex_tables_columns_[i].resize(prop_num);
       if (vertex_table->num_rows() == 0) {
         continue;
       }
       for (prop_id_t j = 0; j < prop_num; ++j) {
+        // LOG(INFO) << "vertex table " << i << " j = " << j
+        //           << " " << vertex_table->column(j)->num_chunks()
+        //           << " " << vertex_table->column(j)->chunk(0);
         vertex_tables_columns_[i][j] =
             get_arrow_array_data(vertex_table->column(j)->chunk(0));
       }

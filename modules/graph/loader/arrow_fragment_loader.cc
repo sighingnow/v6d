@@ -153,13 +153,20 @@ Status ReadRecordBatchesFromVineyard(
   auto source = client.GetObject(object_id);
   RETURN_ON_ASSERT(source != nullptr,
                    "Object not exists: " + ObjectIDToString(object_id));
+  // std::shared_ptr<arrow::Table> table;
   if (auto pstream = std::dynamic_pointer_cast<ParallelStream>(source)) {
-    return ReadRecordBatchesFromVineyardStream(client, pstream, batches,
+    auto s = ReadRecordBatchesFromVineyardStream(client, pstream, batches,
                                                part_id, part_num);
+    // VINEYARD_CHECK_OK(RecordBatchesToTable(batches, &table));
+    // LOG(INFO) << "record batches = " << table->ToString();
+    return s;
   }
   if (auto gdf = std::dynamic_pointer_cast<GlobalDataFrame>(source)) {
-    return ReadRecordBatchesFromVineyardDataFrame(client, gdf, batches, part_id,
+    auto s = ReadRecordBatchesFromVineyardDataFrame(client, gdf, batches, part_id,
                                                   part_num);
+    // VINEYARD_CHECK_OK(RecordBatchesToTable(batches, &table));
+    // LOG(INFO) << "record batches = " << table->ToString();
+    return s;
   }
 
   return Status::Invalid(
@@ -307,12 +314,16 @@ Status ReadTableFromVineyard(Client& client, const ObjectID object_id,
   RETURN_ON_ASSERT(source != nullptr,
                    "Object not exists: " + ObjectIDToString(object_id));
   if (auto pstream = std::dynamic_pointer_cast<ParallelStream>(source)) {
-    return ReadTableFromVineyardStream(client, pstream, table, part_id,
+    auto s = ReadTableFromVineyardStream(client, pstream, table, part_id,
                                        part_num);
+    // LOG(INFO) << "table from vineyard = " << table->ToString();
+    return s;
   }
   if (auto gdf = std::dynamic_pointer_cast<GlobalDataFrame>(source)) {
-    return ReadTableFromVineyardDataFrame(client, gdf, table, part_id,
+    auto s = ReadTableFromVineyardDataFrame(client, gdf, table, part_id,
                                           part_num);
+    // LOG(INFO) << "table from vineyard = " << table->ToString();
+    return s;
   }
 
   return Status::Invalid(
