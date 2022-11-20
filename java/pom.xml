@@ -20,14 +20,14 @@
 
     <dependency.arrow.version>5.0.0</dependency.arrow.version>
     <dependency.guava.version>31.0.1-jre</dependency.guava.version>
-    <dependency.jackson.version>2.14.0-rc1</dependency.jackson.version>
+    <dependency.jackson.version>2.12.7</dependency.jackson.version>
     <dependency.jnr-posix.version>3.1.7</dependency.jnr-posix.version>
     <dependency.jnr-unixsocket.version>0.38.8</dependency.jnr-unixsocket.version>
     <dependency.junit.version>4.13.2</dependency.junit.version>
     <dependency.lombok.version>1.18.20</dependency.lombok.version>
     <dependency.logback.version>1.2.9</dependency.logback.version>
+    <dependency.slf4j.version>2.0.3</dependency.slf4j.version>
     <dependency.native-lib-loader.version>2.3.5</dependency.native-lib-loader.version>
-    <dependency.slf4j.version>1.7.32</dependency.slf4j.version>
   </properties>
 
   <modules>
@@ -125,15 +125,15 @@
       </dependency>
 
       <dependency>
-        <groupId>org.scijava</groupId>
-        <artifactId>native-lib-loader</artifactId>
-        <version>${dependency.native-lib-loader.version}</version>
-      </dependency>
-
-      <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>
         <version>${dependency.slf4j.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.scijava</groupId>
+        <artifactId>native-lib-loader</artifactId>
+        <version>${dependency.native-lib-loader.version}</version>
       </dependency>
 
       <dependency>

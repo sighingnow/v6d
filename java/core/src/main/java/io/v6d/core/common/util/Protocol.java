@@ -95,7 +95,7 @@ public class Protocol {
             ObjectMapper mapper = new ObjectMapper();
             val ids = mapper.createArrayNode();
             ids.add(id.value());
-            root.put("id", ids);
+            root.set("id", ids);
             root.put("sync_remote", sync_remote);
             root.put("wait", wait);
         }
