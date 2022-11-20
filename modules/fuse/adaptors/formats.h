@@ -17,6 +17,7 @@ limitations under the License.
 #define MODULES_FUSE_ADAPTORS_FORMATS_H_
 
 #include "fuse/adaptors/arrow.h"
+#include "fuse/adaptors/csv.h"
 #include "fuse/adaptors/hdf5.h"
 #include "fuse/adaptors/orc.h"
 #include "fuse/adaptors/parquet.h"

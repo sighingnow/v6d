@@ -2,9 +2,10 @@
 set(FUSE_SRC_FILES)
 list(APPEND FUSE_SRC_FILES "fused.cc")
 list(APPEND FUSE_SRC_FILES "adaptors/arrow.cc")
+list(APPEND FUSE_SRC_FILES "adaptors/csv.cc")
+list(APPEND FUSE_SRC_FILES "adaptors/hdf5.cc")
 list(APPEND FUSE_SRC_FILES "adaptors/orc.cc")
 list(APPEND FUSE_SRC_FILES "adaptors/parquet.cc")
-list(APPEND FUSE_SRC_FILES "adaptors/hdf5.cc")
 
 add_library(vineyard_fuse ${FUSE_SRC_FILES})
 target_link_libraries(vineyard_fuse PUBLIC vineyard_client
@@ -12,6 +13,7 @@ target_link_libraries(vineyard_fuse PUBLIC vineyard_client
                                            ${ARROW_SHARED_LIB}
 )
 target_link_libraries(vineyard_fuse PUBLIC FUSE3::FUSE3)
+target_compile_options(vineyard_fuse PUBLIC -DWITH_CSV)
 if(BUILD_VINEYARD_FUSE_PARQUET)
     target_compile_options(vineyard_fuse PUBLIC -DWITH_PARQUET)
     if(TARGET parquet_shared)

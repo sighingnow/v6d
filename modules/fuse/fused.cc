@@ -44,11 +44,19 @@ static std::string name_from_path(std::string const& path,
 static std::string name_from_path(std::string const& path) {
   if (boost::algorithm::ends_with(path, ".arrow")) {
     return name_from_path(path, ".arrow");
+  } else if (boost::algorithm::ends_with(path, ".csv")) {
+#if defined(WITH_CSV)
+    return name_from_path(path, ".csv");
+#endif
   } else if (boost::algorithm::ends_with(path, ".parquet")) {
+#if defined(WITH_PARQUET)
     return name_from_path(path, ".parquet");
+#endif
   }
   if (boost::algorithm::ends_with(path, ".h5")) {
+#if defined(WITH_HDF5)
     return name_from_path(path, ".h5");
+#endif
   } else {
     return "";
   }
@@ -74,7 +82,21 @@ static std::shared_ptr<arrow::Buffer> generate_fuse_view(
                    std::dynamic_pointer_cast<vineyard::Table>(object)) {
       return fuse::arrow_view(table);
     }
+  } else if (ends_with(path, ".csv")) {
+#if defined(WITH_CSV)
+    if (auto dataframe =
+            std::dynamic_pointer_cast<vineyard::DataFrame>(object)) {
+      return fuse::csv_view(dataframe);
+    } else if (auto recordbatch =
+                   std::dynamic_pointer_cast<vineyard::RecordBatch>(object)) {
+      return fuse::csv_view(recordbatch);
+    } else if (auto table =
+                   std::dynamic_pointer_cast<vineyard::Table>(object)) {
+      return fuse::csv_view(table);
+    }
+#endif
   } else if (ends_with(path, ".parquet")) {
+#if defined(WITH_PARQUET)
     if (auto dataframe =
             std::dynamic_pointer_cast<vineyard::DataFrame>(object)) {
       return fuse::parquet_view(dataframe);
@@ -85,10 +107,13 @@ static std::shared_ptr<arrow::Buffer> generate_fuse_view(
                    std::dynamic_pointer_cast<vineyard::Table>(object)) {
       return fuse::parquet_view(table);
     }
+#endif
   } else if (ends_with(path, ".h5")) {
+#if defined(WITH_HDF5)
     if (auto tensor = std::dynamic_pointer_cast<vineyard::ITensor>(object)) {
       return fuse::hdf5_view(tensor);
     }
+#endif
   }
 
   VINEYARD_ASSERT(
@@ -100,6 +125,8 @@ static void build_from_fuse_view(Client* client, std::string const& path,
                                  std::shared_ptr<arrow::BufferBuilder> buffer) {
   if (ends_with(path, ".arrow")) {
     fuse::from_arrow_view(client, name_from_path(path, ".arrow"), buffer);
+  } else if (ends_with(path, ".csv")) {
+    fuse::from_csv_view(client, name_from_path(path, ".csv"), buffer);
   } else if (ends_with(path, ".parquet")) {
     fuse::from_parquet_view(client, name_from_path(path, ".parquet"), buffer);
   } else if (ends_with(path, ".h5")) {
