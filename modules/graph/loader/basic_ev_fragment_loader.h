@@ -80,6 +80,8 @@ class BasicEVFragmentLoader {
       const std::string& label, std::shared_ptr<arrow::Table> vertex_table) {
     auto id_column_type = vertex_table->column(id_column)->type();
 
+    LOG(INFO) << "id column type: = " << id_column_type->ToString()
+              << ", oid type = " << ConvertToArrowType<oid_t>::TypeValue()->ToString();
     if (!id_column_type->Equals(ConvertToArrowType<oid_t>::TypeValue())) {
       RETURN_GS_ERROR(ErrorCode::kInvalidValueError,
                       "OID_T is not same with arrow::Column(" +

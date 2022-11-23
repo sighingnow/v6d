@@ -33,9 +33,15 @@ object SparkApp {
       .setMaster("local[2]")
       // ensure all executor ready
       .set("spark.scheduler.minRegisteredResourcesRatio", "1.0")
+      .set("spark.sql.files.maxPartitionBytes", "1g")
 
     val kind = args(0)
     val edges = args(1)
+    val output = if (args.length > 2) {
+      args(2)
+    } else {
+      edges + "_output"
+    }
 
     val spark = SparkSession
       .builder()
@@ -44,9 +50,10 @@ object SparkApp {
       .enableHiveSupport()
       .getOrCreate()
     val sc = spark.sparkContext
+    sc.hadoopConfiguration.set("dfs.block.size", "128m")
 
     if (kind == "csv") {
-      testLoadAndWriteWithCSV(spark, sc, edges)
+      testLoadAndWriteWithCSV(spark, sc, edges, output)
     } else {
       testLoadAndWriteWithVineyard(spark, sc, edges)
     }
@@ -73,7 +80,8 @@ object SparkApp {
 
   def testLoadAndWriteWithCSV(spark: SparkSession,
                               sc: SparkContext,
-                              edges: String): Unit = {
+                              edges: String,
+                              output: String): Unit = {
     val g = time("loading graph from csv: ", {
       val g = CSVGraphLoader.edgeListFile(sc, edges, false, 1)
       print("loaded graph: ", g.numEdges, g.numVertices)
@@ -82,7 +90,7 @@ object SparkApp {
 
     val df = spark.createDataFrame(g.edges.map(e => Edge(e.srcId, e.dstId, e.attr)))
     val files = time("save edges to csv: ", {
-      df.write.csv(edges + "_output")
+      df.write.csv(output)
     })
   }
 
@@ -90,7 +98,7 @@ object SparkApp {
                                    sc: SparkContext,
                                    edges: String): Unit = {
     val g = time("loading graph from csv: ", {
-      val g = GraphLoader.edgeListFile(sc, edges, false, 1)
+      val g = CSVGraphLoader.edgeListFile(sc, edges, false, 1)
       print("loaded graph: ", g.numEdges, g.numVertices)
       g
     })
