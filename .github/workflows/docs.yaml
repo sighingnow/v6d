@@ -23,9 +23,9 @@ on:
     branches:
       - main
 
-concurrency:
-  group: ${{ github.repository }}-${{ github.event.number || github.head_ref || github.sha }}-${{ github.workflow }}
-  cancel-in-progress: true
+# concurrency:
+#   group: ${{ github.repository }}-${{ github.event.number || github.head_ref || github.sha }}-${{ github.workflow }}
+#   cancel-in-progress: true
 
 jobs:
   docs:
@@ -40,6 +40,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{github.event.pull_request.head.ref}}
           submodules: true
 
       - name: Install Dependencies for Linux
@@ -138,12 +140,12 @@ jobs:
           make vineyard_doc
 
       - uses: actions/setup-node@v3
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request_target' }}
         with:
           node-version: 16
 
       - name: Preview Using Netlify
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request_target' }}
         env:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -157,7 +159,7 @@ jobs:
 
       - name: maintain-comment
         uses: actions-cool/maintain-one-comment@v3
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request_target' }}
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
