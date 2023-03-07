@@ -13,53 +13,50 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ds
+package client
 
 import (
 	"fmt"
 
-	"github.com/apache/arrow/go/arrow/memory"
-	"github.com/v6d-io/v6d/go/vineyard/pkg/common"
+	arrow "github.com/apache/arrow/go/v11/arrow/memory"
+
+	"github.com/v6d-io/v6d/go/vineyard/pkg/common/types"
 )
 
 type Blob struct {
-	id     int
-	size   int
-	buffer []byte
-}
+	ID   types.ObjectID
+	Size int
 
-func (b *Blob) Size() int {
-	return b.size
+	*arrow.Buffer
 }
 
 func (b *Blob) Data() ([]byte, error) {
-	if b.size > 0 && len(b.buffer) == 0 {
+	if b.Size > 0 && b.Buffer.Len() == 0 {
 		return nil, fmt.Errorf("The object might be a (partially) remote object "+
-			"and the payload data is not locally available: %d", b.id)
+			"and the payload data is not locally available: %d", b.ID)
 	}
-	return b.buffer, nil
+	return b.Buffer.Bytes(), nil
 }
 
 type BufferSet struct {
-	//buffer arrow.
+	// buffer arrow.
 }
 
-func (b *BufferSet) EmplaceBuffer(id common.ObjectID) {
-
+func (b *BufferSet) EmplaceBuffer(id types.ObjectID) {
 }
 
 func (b *BufferSet) Reset() {
-
 }
 
 type BlobWriter struct {
-	ID common.ObjectID
-	Payload
-	memory.Buffer
+	ID   types.ObjectID
+	Size int
+
+	*arrow.Buffer
 }
 
-func (b *BlobWriter) Reset(id common.ObjectID, payload Payload, buffer memory.Buffer) {
+func (b *BlobWriter) Reset(id types.ObjectID, size int, buffer *arrow.Buffer) {
 	b.ID = id
-	b.Payload = payload
+	b.Size = size
 	b.Buffer = buffer
 }

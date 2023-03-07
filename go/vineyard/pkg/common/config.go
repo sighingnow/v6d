@@ -13,16 +13,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ds
+package common
 
-import "github.com/v6d-io/v6d/go/vineyard/pkg/common"
+import "fmt"
 
-type Payload struct {
-	ID         common.ObjectID
-	StoreFd    int
-	ArenaFd    int
-	DataOffset int
-	DataSize   int
-	MapSize    int
-	Pointer    *int
-}
+const (
+	VINEYARD_VERSION_MAJOR = 0
+	VINEYARD_VERSION_MINOR = 7
+	VINEYARD_VERSION_PATCH = 2
+
+	VINEYARD_VERSION = ((VINEYARD_VERSION_MAJOR*1000)+VINEYARD_VERSION_MINOR)*1000 +
+		VINEYARD_VERSION_PATCH
+)
+
+var VINEYARD_VERSION_STRING = fmt.Sprintf(
+	"%d.%d.%d",
+	VINEYARD_VERSION_MAJOR,
+	VINEYARD_VERSION_MINOR,
+	VINEYARD_VERSION_PATCH,
+)

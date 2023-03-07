@@ -13,53 +13,78 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vineyard
+package client
 
 import (
 	"fmt"
 	"testing"
 
-	"github.com/apache/arrow/go/arrow"
-	"github.com/apache/arrow/go/arrow/array"
-	"github.com/apache/arrow/go/arrow/memory"
-	vineyard "github.com/v6d-io/v6d/go/vineyard/pkg/client/ds"
+	"github.com/apache/arrow/go/v11/arrow"
+	"github.com/apache/arrow/go/v11/arrow/array"
+	"github.com/apache/arrow/go/v11/arrow/memory"
 	"github.com/v6d-io/v6d/go/vineyard/pkg/common"
+	"github.com/v6d-io/v6d/go/vineyard/pkg/common/types"
 )
 
-func TestIPCServer_Connect(t *testing.T) {
-	ipcAddr := "/var/run/vineyard.sock"
-	ipcServer := IPCClient{}
-	err := ipcServer.Connect(ipcAddr)
+func TestIPCClientConnect(t *testing.T) {
+	client, err := NewIPCClient(GetDefaultIPCSocket())
 	if err != nil {
-		t.Error("connect to ipc server failed", err)
+		t.Fatalf("connect to ipc server failed: %+v", err)
 	}
-	err = ipcServer.Disconnect()
+	defer client.Disconnect()
+}
+
+func TestIPCClientBuffer(t *testing.T) {
+	client, err := NewIPCClient(GetDefaultIPCSocket())
 	if err != nil {
-		t.Error("disconnect ipc server failed", err.Error())
+		t.Fatalf("connect to ipc server failed: %+v", err)
+	}
+	defer client.Disconnect()
+
+	// create buffer
+	buffer, err := client.CreateBuffer(1024)
+	if err != nil {
+		t.Fatalf("create buffer failed: %+v", err)
+	}
+	bufferBytes := buffer.Bytes()
+	for i := 0; i < 1024; i++ {
+		bufferBytes[i] = byte(i)
+	}
+
+	// get buffer
+	buffer2, err := client.GetBuffer(buffer.ID, true)
+	if err != nil {
+		t.Fatalf("get buffer failed: %+v", err)
+	}
+	for i := 0; i < 1024; i++ {
+		if bufferBytes[i] != buffer2.Bytes()[i] {
+			t.Fatalf("buffer content not match")
+		}
 	}
 }
 
-func TestIPCClient_GetName(t *testing.T) {
-	ipcAddr := "/var/run/vineyard.sock"
+func TestIPCClientName(t *testing.T) {
+	client, err := NewIPCClient(GetDefaultIPCSocket())
+	if err != nil {
+		t.Fatalf("connect to ipc server failed: %+v", err)
+	}
+	defer client.Disconnect()
+
 	name := "test_name"
 	nameNoExist := "undefined_name"
-	ipcServer := IPCClient{}
-	err := ipcServer.Connect(ipcAddr)
-	if err != nil {
-		t.Error("connect to ipc server failed", err)
-	}
-	var id1 common.ObjectID = common.GenerateObjectID()
-	if err := ipcServer.PutName(id1, name); err != nil {
-		if putErr, ok := err.(*common.ReplyError); ok {
-			t.Log("get name return code", putErr.Code)
+
+	var id1 types.ObjectID = types.GenerateObjectID()
+	if err := client.PutName(id1, name); err != nil {
+		if status, ok := err.(*common.Status); ok {
+			t.Log("get name return code", status.Code)
 		} else {
 			t.Error("get name failed", err)
 		}
 	}
-	var id2 common.ObjectID
-	if err := ipcServer.GetName(name, false, &id2); err != nil {
-		if getErr, ok := err.(*common.ReplyError); ok {
-			if getErr.Code == common.KObjectNotExists {
+	id2, err := client.GetName(name, false)
+	if err != nil {
+		if status, ok := err.(*common.Status); ok {
+			if status.Code == common.KObjectNotExists {
 				t.Log("get object not exist")
 			}
 		} else {
@@ -71,10 +96,9 @@ func TestIPCClient_GetName(t *testing.T) {
 	}
 	t.Log("put name and get name success!")
 
-	var id3 common.ObjectID
-	if err := ipcServer.GetName(nameNoExist, false, &id3); err != nil {
-		if getErr, ok := err.(*common.ReplyError); ok {
-			if getErr.Code == common.KObjectNotExists {
+	if _, err := client.GetName(nameNoExist, false); err != nil {
+		if status, ok := err.(*common.Status); ok {
+			if status.Code == common.KObjectNotExists {
 				t.Log("get object not exist")
 			}
 		} else {
@@ -83,9 +107,9 @@ func TestIPCClient_GetName(t *testing.T) {
 	}
 	t.Log("get no exist name test success")
 
-	if err := ipcServer.DropName(name); err != nil {
-		if dropErr, ok := err.(*common.ReplyError); ok {
-			if dropErr.Code == common.KObjectNotExists {
+	if err := client.DropName(name); err != nil {
+		if status, ok := err.(*common.Status); ok {
+			if status.Code == common.KObjectNotExists {
 				t.Log("drop object not exist")
 			}
 		} else {
@@ -94,25 +118,18 @@ func TestIPCClient_GetName(t *testing.T) {
 	}
 	t.Log("drop name success")
 
-	if err := ipcServer.GetName(name, false, &id1); err != nil {
-		if getErr, ok := err.(*common.ReplyError); ok {
-			if getErr.Code == common.KObjectNotExists {
+	if _, err := client.GetName(name, false); err != nil {
+		if status, ok := err.(*common.Status); ok {
+			if status.Code == common.KObjectNotExists {
 				t.Log("get object not exist")
 			}
 		} else {
 			t.Error("get name failed", err)
 		}
 	}
-
-	err = ipcServer.Disconnect()
-	if err != nil {
-		t.Error("disconnect ipc server failed", err.Error())
-	}
 }
 
-// need root privilege to run
-// TODO: unfinished
-func TestIPCClient_ArrowDataStructure(t *testing.T) {
+func TestIPCClientArrowDataStructure(t *testing.T) {
 	pool := memory.NewGoAllocator()
 
 	lb := array.NewFixedSizeListBuilder(pool, 3, arrow.PrimitiveTypes.Int64)
@@ -151,26 +168,16 @@ func TestIPCClient_ArrowDataStructure(t *testing.T) {
 	fmt.Printf("Type()    = %v\n", arr.DataType())
 	fmt.Printf("List      = %v\n", arr)
 
-	ipcAddr := "/var/run/vineyard.sock"
-	ipcClient := IPCClient{}
-	err := ipcClient.Connect(ipcAddr)
+	client, err := NewIPCClient(GetDefaultIPCSocket())
 	if err != nil {
-		t.Error("connect to ipc server failed", err)
+		t.Fatalf("connect to ipc server failed: %+v", err)
 	}
+	defer client.Disconnect()
 
-	var array vineyard.ArrayBuilder
-	array.Init(&ipcClient, arr)
-	array.Seal()
-	// TODO: how to get array's id
+	// // var array vineyard.ArrayBuilder
+	// // array.Init(&ipcClient, arr)
+	// // array.Seal()
+	// // // TODO: how to get array's id
 
-	ipcClient.Persist(array.Id())
-}
-
-func TestJSON(t *testing.T) {
-	var a map[string]string = make(map[string]string)
-	a["a"] = "12"
-	if _, ok := a["a"]; ok {
-		fmt.Println("has it")
-	}
-	fmt.Println(a["1"])
+	// ipcClient.Persist(array.Id())
 }

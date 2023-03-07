@@ -13,72 +13,60 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vineyard
+package client
 
 import (
-	"encoding/json"
 	"net"
 	"strconv"
 	"strings"
 
+	"github.com/v6d-io/v6d/go/vineyard/pkg/client/io"
 	"github.com/v6d-io/v6d/go/vineyard/pkg/common"
+	"github.com/v6d-io/v6d/go/vineyard/pkg/common/types"
 )
 
 type RPCClient struct {
 	ClientBase
-	connected        bool
-	ipcSocket        string
-	conn             *net.UnixConn
-	instanceID       int
-	remoteInstanceID int
-	rpcEndpoint      string
+	remoteInstanceID types.InstanceID
 }
 
-func (r *RPCClient) Connect(rpcEndpoint string) error {
-	if r.connected || r.rpcEndpoint == rpcEndpoint {
-		return nil
-	}
-	r.rpcEndpoint = rpcEndpoint
+func NewRPCClient(rpcEndpoint string) (*RPCClient, error) {
+	c := &RPCClient{}
+	c.RPCEndpoint = rpcEndpoint
 
-	str := strings.Split(rpcEndpoint, ":")
-	host := str[0]
-	port := str[1]
-	if port == "" {
-		port = "9600"
+	addresses := strings.Split(rpcEndpoint, ":")
+	var port uint16
+	if addresses[1] == "" {
+		_, port = GetDefaultRPCHostAndPort()
+	} else {
+		if p, err := strconv.Atoi(addresses[1]); err != nil {
+			_, port = GetDefaultRPCHostAndPort()
+		} else {
+			port = uint16(p)
+		}
 	}
+
 	var conn net.Conn
-	portNum, err := strconv.Atoi(port)
-	if err != nil {
-		return err
+	if err := io.ConnectRPCSocketRetry(addresses[0], port, &conn); err != nil {
+		return nil, err
 	}
-	err = ConnectRPCSocketRetry(host, uint16(portNum), &conn)
-	if err != nil {
-		return err
+	c.conn = conn
+
+	messageOut := common.WriteRegisterRequest(common.VINEYARD_VERSION_STRING)
+	if err := c.doWrite(messageOut); err != nil {
+		return nil, err
+	}
+	var reply common.RegisterReply
+	if err := c.doReadReply(&reply); err != nil {
+		return nil, err
 	}
 
-	r.ClientBase.conn = conn
-	var messageOut string
-	common.WriteRegisterRequest(&messageOut)
-	if err := r.DoWrite(messageOut); err != nil {
-		return err
-	}
-	var messageIn string
-	err = r.DoRead(&messageIn)
-	if err != nil {
-		return err
-	}
-	var registerReply common.RegisterReply
-	err = json.Unmarshal([]byte(messageIn), &registerReply)
-	if err != nil {
-		return err
-	}
+	c.connected = true
+	c.IPCSocket = reply.IPCSocket
+	c.instanceID = types.UnspecifiedInstanceID()
+	c.serverVersion = reply.Version
 
-	r.connected = true
-	r.ipcSocket = registerReply.IPCSocket
-	r.remoteInstanceID = registerReply.InstanceID
+	c.remoteInstanceID = reply.InstanceID
 	// TODO: compatible server check
-
-	// r.instanceID = registerReply.InstanceID
-	// fmt.Println(messageIn)
-	return nil
+	return c, nil
 }

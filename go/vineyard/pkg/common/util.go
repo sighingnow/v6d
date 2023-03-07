@@ -14,10 +14,3 @@ limitations under the License.
 */
 
 package common
-
-func RETURN_ON_ERROR(fun func(...interface{})) interface{} {
-	if ret := fun; ret != nil {
-		return ret
-	}
-	return nil
-}

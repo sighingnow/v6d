@@ -13,24 +13,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package common
+package types
 
-import (
-	"testing"
-
-	"gotest.tools/v3/assert"
-)
-
-func TestObjectID(t *testing.T) {
-	var s string = ObjectIDToString(1234)
-	var o, _ = ObjectIDFromString(s)
-	assert.Equal(t, s, "o00000000000004d2")
-	assert.Equal(t, o, uint64(1234))
-}
-
-func TestSignature(t *testing.T) {
-	var s string = SignatureToString(1234)
-	var o, _ = SignatureFromString(s)
-	assert.Equal(t, s, "s00000000000004d2")
-	assert.Equal(t, o, uint64(1234))
+type Payload struct {
+	ID         ObjectID `json:"object_id"`
+	StoreFd    int      `json:"store_fd"`
+	ArenaFd    int      `json:"-"`
+	DataOffset int      `json:"data_offset"`
+	DataSize   int      `json:"data_size"`
+	MapSize    int      `json:"map_size"`
+	Pointer    *int     `json:"-"`
+	Owing      bool     `json:"is_owner"`
+	Sealed     bool     `json:"is_sealed"`
+	GPU        bool     `json:"is_gpu"`
 }
