@@ -461,7 +461,7 @@ void WriteIfPersistRequest(const ObjectID id, std::string& msg);
 
 Status ReadIfPersistRequest(const json& root, ObjectID& id);
 
-void WriteIfPersistReply(bool exists, std::string& msg);
+void WriteIfPersistReply(bool persist, std::string& msg);
 
 Status ReadIfPersistReply(const json& root, bool& persist);
 

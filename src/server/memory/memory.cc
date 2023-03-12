@@ -291,8 +291,8 @@ Status BulkStoreBase<ID, P>::Delete(ID const& object_id) {
     switch (target->kind) {
     case Payload::Kind::kMalloc: {
       BulkAllocator::Free(target->pointer, buff_size);
-      DVLOG(10) << "after free: " << IDToString(object_id) << ": "
-                << Footprint() << "(" << FootprintLimit() << ")";
+      DVLOG(100) << "after free: " << IDToString(object_id) << ": "
+                 << Footprint() << "(" << FootprintLimit() << ")";
     }
     default: {
     }
@@ -440,7 +440,7 @@ template <typename ID, typename P>
 Status BulkStoreBase<ID, P>::FinalizeArena(const int fd,
                                            std::vector<size_t> const& offsets,
                                            std::vector<size_t> const& sizes) {
-  VLOG(2) << "finalizing arena (fd) " << fd << "...";
+  DVLOG(2) << "finalizing arena (fd) " << fd << "...";
   auto arena = arenas_.find(fd);
   if (arena == arenas_.end()) {
     return Status::ObjectNotExists("arena for fd " + std::to_string(fd) +
@@ -453,8 +453,8 @@ Status BulkStoreBase<ID, P>::FinalizeArena(const int fd,
   size_t mmap_size = arena->second.size;
   uintptr_t mmap_base = arena->second.base;
   for (size_t idx = 0; idx < offsets.size(); ++idx) {
-    VLOG(2) << "blob in use: in " << fd << ", at " << offsets[idx]
-            << " of size " << sizes[idx];
+    DVLOG(2) << "blob in use: in " << fd << ", at " << offsets[idx]
+             << " of size " << sizes[idx];
     // make them available for blob pool
     uintptr_t pointer = mmap_base + offsets[idx];
     ID object_id = GenerateBlobID<ID>(pointer);
@@ -540,8 +540,8 @@ Status BulkStore::Create(const size_t data_size, ObjectID& object_id,
   object = std::make_shared<Payload>(object_id, data_size, pointer, fd,
                                      map_size, offset);
   objects_.insert(object_id, object);
-  DVLOG(10) << "after allocate: " << IDToString<ObjectID>(object_id) << ": "
-            << Footprint() << "(" << FootprintLimit() << ")";
+  DVLOG(100) << "after allocate: " << IDToString<ObjectID>(object_id) << ": "
+             << Footprint() << "(" << FootprintLimit() << ")";
   return Status::OK();
 }
 

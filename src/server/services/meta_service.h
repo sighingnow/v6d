@@ -266,9 +266,9 @@ class IMetaService : public std::enable_shared_from_this<IMetaService> {
       self->findDeleteSet(object_ids, processed_delete_set, force, deep);
 
 #ifndef NDEBUG
-      if (VLOG_IS_ON(10)) {
+      if (VLOG_IS_ON(100)) {
         for (auto const& item : processed_delete_set) {
-          VLOG(10) << "deleting object: " << ObjectIDToString(item);
+          DVLOG(100) << "deleting object: " << ObjectIDToString(item);
         }
       }
 #endif
@@ -812,9 +812,11 @@ class IMetaService : public std::enable_shared_from_this<IMetaService> {
 
 #ifndef NDEBUG
     // debugging
-    printDepsGraph();
-    for (auto const& id : blobs_to_delete) {
-      LOG(INFO) << "blob to delete: " << ObjectIDToString(id);
+    if (VLOG_IS_ON(100)) {
+      printDepsGraph();
+      for (auto const& id : blobs_to_delete) {
+        DVLOG(100) << "blob to delete: " << ObjectIDToString(id);
+      }
     }
 #endif
 
