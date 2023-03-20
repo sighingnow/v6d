@@ -7,7 +7,9 @@
         an in-memory immutable data manager
     </p>
 
-|Vineyard CI| |Coverage| |Docs| |FAQ| |Discussion| |Slack| |Docker HUB| |Artifact HUB| |License| |CII Best Practices| |FOSSA|
+|Vineyard CI| |Coverage| |Docs| |FAQ| |Discussion| |Slack| |License| |CII Best Practices| |FOSSA|
+
+|PyPI| |Docker HUB| |Artifact HUB|
 
 
 Vineyard (v6d) is an innovative in-memory immutable data manager that offers **out-of-the-box
@@ -32,7 +34,7 @@ Table of Contents
   * `Pipelining using stream <#stream-pipelining>`_
   * `I/O Drivers <#drivers>`_
 
-* `Getting started with vineyard <#try-vineyard>`_
+* `Getting started with Vineyard <#try-vineyard>`_
 * `Deploying on Kubernetes <#deploying-on-kubernetes>`_
 * `Frequently asked questions <#faq>`_
 * `Getting involved in our community <#getting-involved>`_
@@ -58,10 +60,11 @@ end-to-end process within a single Python script.
    :alt: Comparing the workflow with and without vineyard
 
 What if the input data is too large to be processed on a single machine?
-As depicted on the left side of the figure, a common approach is to store the data as tables in
-a distributed file system (e.g., HDFS) and replace ``pandas`` with ETL processes using SQL over a
-big data system such as Hive and Spark. To share the data with PyTorch, the intermediate results are
-typically saved back as tables on HDFS. However, this can introduce challenges for developers.
+
+   As depicted on the left side of the figure, a common approach is to store the data as tables in
+   a distributed file system (e.g., HDFS) and replace ``pandas`` with ETL processes using SQL over a
+   big data system such as Hive and Spark. To share the data with PyTorch, the intermediate results are
+   typically saved back as tables on HDFS. However, this can introduce challenges for developers.
 
 1. For the same task, users must program for multiple systems (SQL & Python).
 
@@ -173,10 +176,11 @@ In addition to sharing high-level data abstractions, Vineyard extends the capabi
 of data structures with drivers, enabling out-of-the-box reusable routines for the
 boilerplate parts in computation jobs.
 
-Try vineyard
+Try Vineyard
 ------------
 
 Vineyard is available as a `python package`_ and can be effortlessly installed using ``pip``:
+
 .. code:: shell
 
    pip3 install vineyard
@@ -309,6 +313,8 @@ third-party libraries may not have the same license as vineyard.
    :target: https://github.com/v6d-io/v6d/discussions
 .. |Slack| image:: https://img.shields.io/badge/Slack-Join%20%23vineyard-purple?logo=Slack
    :target: https://slack.cncf.io/
+.. |PyPI| image:: https://img.shields.io/pypi/v/vineyard?color=blue
+   :target: https://pypi.org/project/vineyard
 .. |Docker HUB| image:: https://img.shields.io/badge/docker-ready-blue.svg
    :target: https://hub.docker.com/u/vineyardcloudnative
 .. |Artifact HUB| image:: https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vineyard
