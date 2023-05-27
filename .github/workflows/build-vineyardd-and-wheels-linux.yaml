@@ -27,7 +27,7 @@ concurrency:
 jobs:
   build-vineyardd:
     runs-on: ${{ matrix.os }}
-    if: ${{ github.repository == 'v6d-io/v6d' }}
+    # if: ${{ github.repository == 'v6d-io/v6d' }}
     strategy:
       matrix:
         os: [ubuntu-20.04]
@@ -104,7 +104,7 @@ jobs:
   build-vineyardd-manifest:
     needs: [build-vineyardd]
     runs-on: ${{ matrix.os }}
-    if: ${{ github.repository == 'v6d-io/v6d' }}
+    # if: ${{ github.repository == 'v6d-io/v6d' }}
     strategy:
       matrix:
         os: [ubuntu-20.04]
@@ -143,7 +143,7 @@ jobs:
 
   build-vineyardctl:
     runs-on: ${{ matrix.os }}
-    if: ${{ github.repository == 'v6d-io/v6d' }}
+    # if: ${{ github.repository == 'v6d-io/v6d' }}
     strategy:
       matrix:
         os: [ubuntu-20.04]
@@ -167,7 +167,8 @@ jobs:
 
           env CGO_ENABLED=0 GOARCH=$arch go build -a -o vineyardctl k8s/cmd/main.go
 
-          sudo apt-get install binutils-x86-64-linux-gnu binutils-aarch64-linux-gnu
+          sudo apt-get update
+          sudo apt-get install -y binutils-x86-64-linux-gnu binutils-aarch64-linux-gnu
           x86_64-linux-gnu-strip ./vineyardctl || true
           aarch64-linux-gnu-strip ./vineyardctl || true
 
@@ -187,7 +188,7 @@ jobs:
   build-bdist-wheels:
     needs: [build-vineyardd, build-vineyardctl]
     runs-on: ${{ matrix.os }}
-    if: ${{ github.repository == 'v6d-io/v6d' }}
+    # if: ${{ github.repository == 'v6d-io/v6d' }}
     strategy:
       matrix:
         os: [ubuntu-20.04]
@@ -239,14 +240,13 @@ jobs:
           body: "vineyard ${{ steps.tag.outputs.TAG }}"
 
       - uses: actions/upload-artifact@v3
-        if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'v6d-io/v6d' }}
         with:
           name: vineyard-bdist-linux-${{ matrix.platform }}-wheels
           path: fixed_wheels/*.whl
 
   build-wheels:
     runs-on: ${{ matrix.os }}
-    if: ${{ github.repository == 'v6d-io/v6d' }}
+    # if: ${{ github.repository == 'v6d-io/v6d' }}
     strategy:
       matrix:
         os: [ubuntu-20.04]
@@ -315,7 +315,6 @@ jobs:
           body: "vineyard ${{ steps.tag.outputs.TAG }}"
 
       - uses: actions/upload-artifact@v3
-        if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'v6d-io/v6d' }}
         with:
           name: vineyard-linux-${{ matrix.platform }}-wheels
           path: fixed_wheels/*.whl
