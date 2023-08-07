@@ -14,14 +14,13 @@
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use super::super::*;
 
     #[test]
-    fn test_ipc_connect() {
-        let mut conn = IPCClient::default().unwrap();
-        let client = Rc::get_mut(&mut conn).unwrap();
+    fn test_ipc_connect() -> Result<()> {
+        let mut client = IPCClient::default()?;
         assert!(client.connected());
+
+        return Ok(());
     }
 }

@@ -12,4 +12,875 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io::*;
+use std::marker::PhantomData;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use arrow::array;
+use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer, OffsetBuffer, ScalarBuffer};
+use arrow_array::builder::GenericStringBuilder;
+use arrow_array::{ArrayRef, GenericStringArray, OffsetSizeTrait};
+
+use downcast_rs::impl_downcast;
+
+use static_str_ops::*;
+
+use super::arrow_utils::*;
+use crate::client::*;
+
+pub trait Array: Object {
+    fn array(&self) -> array::ArrayRef;
+}
+
+impl_downcast!(Array);
+
+pub fn downcast_array<T: Array>(object: Box<dyn Array>) -> Result<Box<T>> {
+    return object
+        .downcast::<T>()
+        .map_err(|_| VineyardError::invalid(format!("downcast object to array failed",)));
+}
+
+pub fn downcast_array_ref<T: Array>(object: &dyn Array) -> Result<&T> {
+    return object
+        .downcast_ref::<T>()
+        .ok_or(VineyardError::invalid(format!(
+            "downcast object '{:?}' to array failed",
+            object.meta().get_typename()?,
+        )));
+}
+
+pub fn downcast_array_rc<T: Array>(object: Rc<dyn Array>) -> Result<Rc<T>> {
+    return object
+        .downcast_rc::<T>()
+        .map_err(|_| VineyardError::invalid(format!("downcast object to array failed",)));
+}
+
+pub trait NumericType = ToArrowType where <Self as ToArrowType>::Type: array::ArrowPrimitiveType;
+
+pub type TypedBuffer<T> =
+    ScalarBuffer<<<T as ToArrowType>::Type as array::ArrowPrimitiveType>::Native>;
+
+pub type TypedArray<T> = array::PrimitiveArray<<T as ToArrowType>::Type>;
+pub type TypedBuilder<T> = array::PrimitiveBuilder<<T as ToArrowType>::Type>;
+
+pub struct NumericArray<T: NumericType> {
+    meta: ObjectMeta,
+    array: Arc<TypedArray<T>>,
+}
+
+impl<T: NumericType + TypeName + 'static> Array for NumericArray<T> {
+    fn array(&self) -> array::ArrayRef {
+        return self.array.clone();
+    }
+}
+
+pub type Int8Array = NumericArray<i8>;
+pub type UInt8Array = NumericArray<u8>;
+pub type Int16Array = NumericArray<i16>;
+pub type UInt16Array = NumericArray<u16>;
+pub type Int32Array = NumericArray<i32>;
+pub type UInt32Array = NumericArray<u32>;
+pub type Int64Array = NumericArray<i64>;
+pub type UInt64Array = NumericArray<u64>;
+pub type Float32Array = NumericArray<f32>;
+pub type Float64Array = NumericArray<f64>;
+
+impl<T: TypeName + NumericType> TypeName for NumericArray<T> {
+    fn typename() -> &'static str {
+        return staticize(format!("vineyard::NumericArray<{}>", T::typename()));
+    }
+}
+
+impl<T: NumericType> Default for NumericArray<T> {
+    fn default() -> Self {
+        NumericArray {
+            meta: ObjectMeta::default(),
+            array: Arc::new(TypedArray::<T>::new_null(0)),
+        }
+    }
+}
+
+impl<T: TypeName + NumericType + 'static> Object for NumericArray<T> {
+    fn construct(&mut self, meta: ObjectMeta) -> Result<()> {
+        vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
+        self.meta = meta;
+        let values = resolve_scalar_buffer::<T>(&self.meta, "buffer_")?;
+        let nulls = resolve_null_bitmap_buffer(&self.meta, "null_bitmap_")?;
+        self.array = Arc::new(TypedArray::<T>::new(values, nulls));
+        return Ok(());
+    }
+}
+
+register_vineyard_object!(NumericArray<T: TypeName + NumericType + 'static>);
+register_vineyard_types! {
+    Int8Array;
+    UInt8Array;
+    Int16Array;
+    UInt16Array;
+    Int32Array;
+    UInt32Array;
+    Int64Array;
+    UInt64Array;
+    Float32Array;
+    Float64Array;
+}
+
+impl<T: NumericType + TypeName + 'static> NumericArray<T> {
+    pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
+        let mut array: NumericArray<T> = NumericArray::default();
+        array.construct(meta)?;
+        return Ok(Box::new(array));
+    }
+
+    pub fn len(&self) -> usize {
+        return self.array.len();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.array.is_empty();
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        return unsafe {
+            std::slice::from_raw_parts(self.array.values().inner().as_ptr() as _, self.len())
+        };
+    }
+}
+
+pub struct NumericBuilder<T: NumericType> {
+    sealed: bool,
+    length: usize,
+    offset: usize,
+    null_count: usize,
+    buffer: BlobWriter,
+    null_bitmap: Option<BlobWriter>,
+    phantom: PhantomData<T>,
+}
+
+pub type Int8Builder = NumericBuilder<i8>;
+pub type UInt8Builder = NumericBuilder<u8>;
+pub type Int16Builder = NumericBuilder<i16>;
+pub type UInt16Builder = NumericBuilder<u16>;
+pub type Int32Builder = NumericBuilder<i32>;
+pub type UInt32Builder = NumericBuilder<u32>;
+pub type Int64Builder = NumericBuilder<i64>;
+pub type UInt64Builder = NumericBuilder<u64>;
+pub type Float32Builder = NumericBuilder<f32>;
+pub type Float64Builder = NumericBuilder<f64>;
+
+impl<T: TypeName + NumericType + 'static> ObjectBuilder for NumericBuilder<T> {
+    fn sealed(&self) -> bool {
+        self.sealed
+    }
+
+    fn set_sealed(&mut self, sealed: bool) {
+        self.sealed = sealed;
+    }
+}
+
+impl<T: TypeName + NumericType + 'static> ObjectBase for NumericBuilder<T> {
+    fn build(&mut self, client: &mut IPCClient) -> Result<()> {
+        if self.sealed {
+            return Ok(());
+        }
+        self.set_sealed(true);
+        self.buffer.build(client)?;
+        if let Some(ref mut null_bitmap) = self.null_bitmap {
+            null_bitmap.build(client)?;
+        }
+        return Ok(());
+    }
+
+    fn seal(mut self, client: &mut IPCClient) -> Result<Box<dyn Object>> {
+        self.build(client)?;
+        let mut nbytes = self.buffer.len();
+        let buffer = self.buffer.seal(client)?;
+        let null_bitmap = match self.null_bitmap {
+            None => None,
+            Some(null_bitmap) => {
+                nbytes += null_bitmap.len();
+                Some(null_bitmap.seal(client)?)
+            }
+        };
+        let mut meta = ObjectMeta::new_from_typename(typename::<NumericArray<T>>());
+        meta.add_member("buffer_", buffer)?;
+        if let Some(null_bitmap) = null_bitmap {
+            meta.add_member("null_bitmap_", null_bitmap)?;
+        } else {
+            meta.add_member("null_bitmap_", Blob::empty(client)?)?;
+        }
+        meta.add_usize("length_", self.length);
+        meta.add_usize("offset_", self.offset);
+        meta.add_usize("null_count_", self.null_count);
+        meta.set_nbytes(nbytes);
+        let metadata = client.create_metadata(&meta)?;
+        return NumericArray::<T>::new_boxed(metadata);
+    }
+}
+
+impl<T: NumericType> NumericBuilder<T> {
+    pub fn new(client: &mut IPCClient, length: usize) -> Result<Self> {
+        let buffer = client.create_blob(std::mem::size_of::<T>() * length)?;
+        return Ok(NumericBuilder {
+            sealed: false,
+            length,
+            offset: 0,
+            null_count: 0,
+            buffer,
+            null_bitmap: None,
+            phantom: PhantomData,
+        });
+    }
+
+    pub fn new_from_array(client: &mut IPCClient, array: &TypedArray<T>) -> Result<Self> {
+        use arrow_array::Array;
+
+        let buffer = build_scalar_buffer::<T>(client, array.values())?;
+        let null_bitmap = build_null_bitmap_buffer(client, array.nulls())?;
+        return Ok(NumericBuilder {
+            sealed: false,
+            length: array.len(),
+            offset: 0,
+            null_count: array.null_count(),
+            buffer,
+            null_bitmap,
+            phantom: PhantomData,
+        });
+    }
+
+    pub fn new_from_builder(client: &mut IPCClient, builder: &mut TypedBuilder<T>) -> Result<Self> {
+        let array = builder.finish();
+        return Self::new_from_array(client, &array);
+    }
+
+    pub fn len(&self) -> usize {
+        return self.length;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.length == 0;
+    }
+
+    pub fn offset(&self) -> usize {
+        return self.offset;
+    }
+
+    pub fn null_count(&self) -> usize {
+        return self.null_count;
+    }
+
+    pub fn as_slice(&mut self) -> &[T] {
+        return unsafe { std::mem::transmute(self.buffer.as_slice()) };
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        return unsafe { std::mem::transmute(self.buffer.as_mut_slice()) };
+    }
+}
+
+pub struct BaseStringArray<O: OffsetSizeTrait> {
+    meta: ObjectMeta,
+    array: Arc<array::GenericStringArray<O>>,
+}
+
+impl<O: OffsetSizeTrait> Array for BaseStringArray<O> {
+    fn array(&self) -> array::ArrayRef {
+        return self.array.clone();
+    }
+}
+
+pub type StringArray = BaseStringArray<i32>;
+pub type LargeStringArray = BaseStringArray<i64>;
+
+impl<O: OffsetSizeTrait> TypeName for BaseStringArray<O> {
+    fn typename() -> &'static str {
+        if std::mem::size_of::<O>() == 4 {
+            return staticize("vineyard::BaseBinaryArray<arrow::StringArray>");
+        } else {
+            return staticize("vineyard::BaseBinaryArray<arrow::LargeStringArray>");
+        }
+    }
+}
+
+impl<O: OffsetSizeTrait> Default for BaseStringArray<O> {
+    fn default() -> Self {
+        BaseStringArray {
+            meta: ObjectMeta::default(),
+            array: Arc::new(array::GenericStringArray::<O>::new_null(0)),
+        }
+    }
+}
+
+impl<O: OffsetSizeTrait> Object for BaseStringArray<O> {
+    fn construct(&mut self, meta: ObjectMeta) -> Result<()> {
+        vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
+        self.meta = meta;
+        let values = resolve_buffer(&self.meta, "buffer_data_")?;
+        let offsets = resolve_offsets_buffer::<O>(&self.meta, "buffer_offsets_")?;
+        let nulls = resolve_null_bitmap_buffer(&self.meta, "null_bitmap_")?;
+        self.array = Arc::new(array::GenericStringArray::<O>::new(offsets, values, nulls));
+        return Ok(());
+    }
+}
+
+register_vineyard_object!(BaseStringArray<O: OffsetSizeTrait>);
+
+impl<O: OffsetSizeTrait> BaseStringArray<O> {
+    pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
+        let mut array = Self::default();
+        array.construct(meta)?;
+        return Ok(Box::new(array));
+    }
+
+    pub fn as_array(&self) -> &array::GenericStringArray<O> {
+        return &self.array;
+    }
+
+    pub fn len(&self) -> usize {
+        use arrow_array::Array;
+        return self.array.len();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        use arrow_array::Array;
+        return self.array.is_empty();
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        return self.array.value_data();
+    }
+
+    pub fn as_slice_offsets(&self) -> &[O] {
+        return self.array.value_offsets();
+    }
+}
+
+pub struct BaseStringBuilder<O: OffsetSizeTrait> {
+    sealed: bool,
+    length: usize,
+    offset: usize,
+    null_count: usize,
+    value_data: BlobWriter,
+    value_offsets: BlobWriter,
+    null_bitmap: Option<BlobWriter>,
+    phantom: PhantomData<O>,
+}
+
+pub type StringBuilder = BaseStringBuilder<i32>;
+pub type LargeStringBuilder = BaseStringBuilder<i64>;
+
+impl<O: OffsetSizeTrait> ObjectBuilder for BaseStringBuilder<O> {
+    fn sealed(&self) -> bool {
+        self.sealed
+    }
+
+    fn set_sealed(&mut self, sealed: bool) {
+        self.sealed = sealed;
+    }
+}
+
+impl<O: OffsetSizeTrait> ObjectBase for BaseStringBuilder<O> {
+    fn build(&mut self, client: &mut IPCClient) -> Result<()> {
+        if self.sealed {
+            return Ok(());
+        }
+        self.set_sealed(true);
+        self.value_data.build(client)?;
+        self.value_offsets.build(client)?;
+        if let Some(ref mut null_bitmap) = self.null_bitmap {
+            null_bitmap.build(client)?;
+        }
+        return Ok(());
+    }
+
+    fn seal(mut self, client: &mut IPCClient) -> Result<Box<dyn Object>> {
+        self.build(client)?;
+        let mut nbytes = self.value_data.len();
+        let value_data = self.value_data.seal(client)?;
+        nbytes += self.value_offsets.len();
+        let value_offsets = self.value_offsets.seal(client)?;
+        let null_bitmap = match self.null_bitmap {
+            None => None,
+            Some(null_bitmap) => {
+                nbytes += null_bitmap.len();
+                Some(null_bitmap.seal(client)?)
+            }
+        };
+        let mut meta = ObjectMeta::new_from_typename(typename::<BaseStringArray<O>>());
+        meta.add_member("buffer_data_", value_data)?;
+        meta.add_member("buffer_offsets_", value_offsets)?;
+        if let Some(null_bitmap) = null_bitmap {
+            meta.add_member("null_bitmap_", null_bitmap)?;
+        } else {
+            meta.add_member("null_bitmap_", Blob::empty(client)?)?;
+        }
+        meta.add_usize("length_", self.length);
+        meta.add_usize("offset_", self.offset);
+        meta.add_usize("null_count_", self.null_count);
+        meta.set_nbytes(nbytes);
+        let metadata = client.create_metadata(&meta)?;
+        return BaseStringArray::<O>::new_boxed(metadata);
+    }
+}
+
+impl<O: OffsetSizeTrait> BaseStringBuilder<O> {
+    pub fn new_from_array(client: &mut IPCClient, array: &GenericStringArray<O>) -> Result<Self> {
+        use arrow_array::Array;
+
+        let value_data = build_buffer(client, array.values())?;
+        let value_offsets = build_offsets_buffer(client, array.offsets())?;
+        let null_bitmap = build_null_bitmap_buffer(client, array.nulls())?;
+        return Ok(BaseStringBuilder {
+            sealed: false,
+            length: array.len(),
+            offset: 0,
+            null_count: array.null_count(),
+            value_data,
+            value_offsets,
+            null_bitmap,
+            phantom: PhantomData,
+        });
+    }
+
+    pub fn new_from_builder(
+        client: &mut IPCClient,
+        builder: &mut GenericStringBuilder<O>,
+    ) -> Result<Self> {
+        let array = builder.finish();
+        return Self::new_from_array(client, &array);
+    }
+
+    pub fn len(&self) -> usize {
+        return self.length;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.length == 0;
+    }
+
+    pub fn offset(&self) -> usize {
+        return self.offset;
+    }
+
+    pub fn null_count(&self) -> usize {
+        return self.null_count;
+    }
+
+    pub fn as_slice(&mut self) -> &[u8] {
+        return self.value_data.as_slice();
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        return unsafe { std::mem::transmute(self.value_data.as_mut_slice()) };
+    }
+
+    pub fn as_slice_offsets(&mut self) -> &[O] {
+        return unsafe { std::mem::transmute(self.value_offsets.as_slice()) };
+    }
+
+    pub fn as_mut_slice_offsets(&mut self) -> &mut [O] {
+        return unsafe { std::mem::transmute(self.value_offsets.as_mut_slice()) };
+    }
+}
+
+pub fn downcast_to_array(object: Box<dyn Object>) -> Result<Box<dyn Array>> {
+    macro_rules! downcast {
+        ($object: ident, $ty: ty) => {
+            |$object| match $object.downcast::<$ty>() {
+                Ok(array) => Ok(array),
+                Err(original) => Err(original),
+            }
+        };
+    }
+
+    let mut object: std::result::Result<Box<dyn Array>, Box<dyn Object>> = Err(object);
+    object = object
+        .or_else(downcast!(object, Int8Array))
+        .or_else(downcast!(object, UInt8Array))
+        .or_else(downcast!(object, Int16Array))
+        .or_else(downcast!(object, UInt16Array))
+        .or_else(downcast!(object, Int32Array))
+        .or_else(downcast!(object, UInt32Array))
+        .or_else(downcast!(object, Int64Array))
+        .or_else(downcast!(object, UInt64Array))
+        .or_else(downcast!(object, Float32Array))
+        .or_else(downcast!(object, Float64Array))
+        .or_else(downcast!(object, StringArray))
+        .or_else(downcast!(object, LargeStringArray));
+
+    match object {
+        Ok(array) => return Ok(array),
+        Err(object) => {
+            return Err(VineyardError::invalid(format!(
+                "downcast object to array failed, object type is: '{}'",
+                object.meta().get_typename()?,
+            )))
+        }
+    };
+}
+
+pub fn build_array(client: &mut IPCClient, array: ArrayRef) -> Result<Box<dyn Object>> {
+    macro_rules! build {
+        ($array: ident, $array_ty: ty, $builder_ty: ty) => {
+            |$array| match $array.as_any().downcast_ref::<$array_ty>() {
+                Some(array) => match <$builder_ty>::new_from_array(client, array) {
+                    Ok(builder) => match builder.seal(client) {
+                        Ok(object) => Ok(object),
+                        Err(_) => Err(array as &dyn arrow::array::Array),
+                    },
+                    Err(_) => Err(array as &dyn arrow::array::Array),
+                },
+                None => Err($array),
+            }
+        };
+    }
+
+    let mut array: std::result::Result<Box<dyn Object>, &dyn arrow::array::Array> =
+        Err(array.as_ref());
+    array = array
+        .or_else(build!(array, arrow::array::Int8Array, Int8Builder))
+        .or_else(build!(array, arrow::array::UInt8Array, UInt8Builder))
+        .or_else(build!(array, arrow::array::Int16Array, Int16Builder))
+        .or_else(build!(array, arrow::array::UInt16Array, UInt16Builder))
+        .or_else(build!(array, arrow::array::Int32Array, Int32Builder))
+        .or_else(build!(array, arrow::array::UInt32Array, UInt32Builder))
+        .or_else(build!(array, arrow::array::Int64Array, Int64Builder))
+        .or_else(build!(array, arrow::array::UInt64Array, UInt64Builder))
+        .or_else(build!(array, arrow::array::Float32Array, Float32Builder))
+        .or_else(build!(array, arrow::array::Float64Array, Float64Builder))
+        .or_else(build!(array, arrow::array::StringArray, StringBuilder))
+        .or_else(build!(
+            array,
+            arrow::array::LargeStringArray,
+            LargeStringBuilder
+        ));
+
+    match array {
+        Ok(builder) => return Ok(builder),
+        Err(array) => {
+            return Err(VineyardError::invalid(format!(
+                "build array failed, array type is: '{}'",
+                array.data_type(),
+            )))
+        }
+    };
+}
+
+pub struct SchemaProxy {
+    meta: ObjectMeta,
+    schema: arrow::datatypes::Schema,
+}
+
+impl TypeName for SchemaProxy {
+    fn typename() -> &'static str {
+        return staticize("vineyard::SchemaProxy");
+    }
+}
+
+impl Default for SchemaProxy {
+    fn default() -> Self {
+        SchemaProxy {
+            meta: ObjectMeta::default(),
+            schema: arrow::datatypes::Schema::empty(),
+        }
+    }
+}
+
+impl Object for SchemaProxy {
+    fn construct(&mut self, meta: ObjectMeta) -> Result<()> {
+        vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
+        self.meta = meta;
+        let schema = self.meta.get_vector::<u8>("schema_binary_")?;
+        self.schema = arrow::ipc::convert::try_schema_from_ipc_buffer(schema.as_slice())?;
+        return Ok(());
+    }
+}
+
+register_vineyard_object!(SchemaProxy);
+
+impl SchemaProxy {
+    pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
+        let mut schema = SchemaProxy::default();
+        schema.construct(meta)?;
+        return Ok(Box::new(schema));
+    }
+
+    pub fn schema(&self) -> &arrow::datatypes::Schema {
+        return &self.schema;
+    }
+}
+
+pub struct SchemaProxyBuilder {
+    sealed: bool,
+    schema_binary: Vec<u8>,
+    schema_textual: String,
+}
+
+impl ObjectBuilder for SchemaProxyBuilder {
+    fn sealed(&self) -> bool {
+        self.sealed
+    }
+
+    fn set_sealed(&mut self, sealed: bool) {
+        self.sealed = sealed;
+    }
+}
+
+impl ObjectBase for SchemaProxyBuilder {
+    fn build(&mut self, _client: &mut IPCClient) -> Result<()> {
+        if self.sealed {
+            return Ok(());
+        }
+        self.set_sealed(true);
+        return Ok(());
+    }
+
+    fn seal(mut self, client: &mut IPCClient) -> Result<Box<dyn Object>> {
+        self.build(client)?;
+        let mut meta = ObjectMeta::new_from_typename(typename::<SchemaProxy>());
+        meta.add_vector("schema_binary_", &self.schema_binary)?;
+        meta.add_string("schema_textual_", self.schema_textual);
+        meta.set_nbytes(self.schema_binary.len());
+        let metadata = client.create_metadata(&meta)?;
+        return SchemaProxy::new_boxed(metadata);
+    }
+}
+
+impl SchemaProxyBuilder {
+    pub fn new(schema: &arrow::datatypes::Schema) -> Result<Self> {
+        let generator = arrow::ipc::writer::IpcDataGenerator {};
+        let ipc_write_options = arrow::ipc::writer::IpcWriteOptions::default();
+        let schema_binary = generator
+            .schema_to_bytes(&schema, &ipc_write_options)
+            .ipc_message;
+        let schema_textual = schema.to_string();
+        return Ok(SchemaProxyBuilder {
+            sealed: false,
+            schema_binary,
+            schema_textual,
+        });
+    }
+
+    pub fn new_from_builder(builder: arrow::datatypes::SchemaBuilder) -> Result<Self> {
+        return Self::new(&builder.finish());
+    }
+}
+
+pub struct RecordBatch {
+    meta: ObjectMeta,
+    batch: arrow::record_batch::RecordBatch,
+}
+
+impl TypeName for RecordBatch {
+    fn typename() -> &'static str {
+        return staticize("vineyard::RecordBatch");
+    }
+}
+
+impl Default for RecordBatch {
+    fn default() -> Self {
+        RecordBatch {
+            meta: ObjectMeta::default(),
+            batch: arrow::record_batch::RecordBatch::new_empty(Arc::new(
+                arrow::datatypes::Schema::empty(),
+            )),
+        }
+    }
+}
+
+impl Object for RecordBatch {
+    fn construct(&mut self, meta: ObjectMeta) -> Result<()> {
+        vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
+        self.meta = meta;
+        let schema = self.meta.get_member::<SchemaProxy>("schema_")?;
+        let schema = schema.schema();
+        let _num_rows = self.meta.get_usize("row_num_")?;
+        let _num_columns = self.meta.get_usize("column_num_")?;
+        let columns_size = self.meta.get_usize("__columns_-size")?;
+        let mut arrays = Vec::with_capacity(columns_size);
+        for i in 0..columns_size {
+            let column = self.meta.get_member_untyped(&format!("__columns_-{}", i))?;
+            arrays.push(downcast_to_array(column)?.array());
+        }
+        self.batch = arrow::record_batch::RecordBatch::try_new(Arc::new(schema.clone()), arrays)?;
+        return Ok(());
+    }
+}
+
+register_vineyard_object!(RecordBatch);
+
+impl RecordBatch {
+    pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
+        let mut batch = RecordBatch::default();
+        batch.construct(meta)?;
+        return Ok(Box::new(batch));
+    }
+
+    pub fn batch(&self) -> &arrow::record_batch::RecordBatch {
+        return &self.batch;
+    }
+
+    pub fn schema(&self) -> Arc<arrow::datatypes::Schema> {
+        return self.batch.schema();
+    }
+
+    pub fn num_rows(&self) -> usize {
+        return self.batch.num_rows();
+    }
+
+    pub fn num_columns(&self) -> usize {
+        return self.batch.num_columns();
+    }
+}
+
+pub struct RecordBatchBuilder {
+    sealed: bool,
+    schema: SchemaProxyBuilder,
+    row_num: usize,
+    column_num: usize,
+    columns: Vec<Box<dyn Object>>,
+}
+
+impl ObjectBuilder for RecordBatchBuilder {
+    fn sealed(&self) -> bool {
+        self.sealed
+    }
+
+    fn set_sealed(&mut self, sealed: bool) {
+        self.sealed = sealed;
+    }
+}
+
+impl ObjectBase for RecordBatchBuilder {
+    fn build(&mut self, client: &mut IPCClient) -> Result<()> {
+        if self.sealed {
+            return Ok(());
+        }
+        self.set_sealed(true);
+        self.schema.build(client)?;
+        return Ok(());
+    }
+
+    fn seal(mut self, client: &mut IPCClient) -> Result<Box<dyn Object>> {
+        self.build(client)?;
+        let mut meta = ObjectMeta::new_from_typename(typename::<RecordBatch>());
+        meta.add_member("schema_", self.schema.seal(client)?)?;
+        meta.add_usize("row_num_", self.row_num);
+        meta.add_usize("column_num_", self.column_num);
+        meta.add_usize("__columns_-size", self.columns.len());
+        for (i, column) in self.columns.into_iter().enumerate() {
+            meta.add_member(&format!("__columns_-{}", i), column)?;
+        }
+        let metadata = client.create_metadata(&meta)?;
+        return RecordBatch::new_boxed(metadata);
+    }
+}
+
+impl RecordBatchBuilder {
+    pub fn new(client: &mut IPCClient, batch: arrow::record_batch::RecordBatch) -> Result<Self> {
+        let schema = SchemaProxyBuilder::new(&batch.schema())?;
+
+        let mut columns = Vec::with_capacity(batch.num_columns());
+        for i in 0..batch.num_columns() {
+            let array = batch.column(i);
+            let array = build_array(client, array.clone())?;
+            columns.push(array);
+        }
+        return Ok(RecordBatchBuilder {
+            sealed: false,
+            schema: schema,
+            row_num: batch.num_rows(),
+            column_num: batch.num_columns(),
+            columns: columns,
+        });
+    }
+}
+
+fn resolve_buffer(meta: &ObjectMeta, key: &str) -> Result<Buffer> {
+    let id = meta.get_member_id(key)?;
+    match meta.get_buffer(id)? {
+        None => {
+            return Err(VineyardError::invalid(format!(
+                "buffer '{}' not exists in metadata",
+                key
+            )));
+        }
+        Some(buffer) => {
+            return Ok(buffer);
+        }
+    }
+}
+
+fn resolve_null_bitmap_buffer(meta: &ObjectMeta, key: &str) -> Result<Option<NullBuffer>> {
+    let id = meta.get_member_id(key)?;
+    if is_blob(id) {
+        return Ok(None);
+    }
+    if let Ok(buffer) = resolve_buffer(meta, key) {
+        let length = meta.get_usize("length_")?;
+        let null_count = meta.get_usize("null_count_")?;
+        let offset = meta.get_usize("offset_")?;
+        let buffer = BooleanBuffer::new(buffer, offset, length);
+        return Ok(Some(unsafe {
+            NullBuffer::new_unchecked(buffer, null_count)
+        }));
+    }
+    return Ok(None);
+}
+
+fn resolve_scalar_buffer<T: NumericType>(meta: &ObjectMeta, key: &str) -> Result<TypedBuffer<T>> {
+    let buffer = resolve_buffer(meta, key)?;
+    let length = meta.get_usize("length_")?;
+    let offset = meta.get_usize("offset_")?;
+    return Ok(TypedBuffer::<T>::new(buffer, offset, length));
+}
+
+fn resolve_offsets_buffer<O: OffsetSizeTrait>(
+    meta: &ObjectMeta,
+    key: &str,
+) -> Result<OffsetBuffer<O>> {
+    let buffer = resolve_buffer(meta, key)?;
+    let length = meta.get_usize("length_")? + 1;
+    let offset = meta.get_usize("offset_")?;
+    let buffer = ScalarBuffer::<O>::new(buffer, offset, length);
+    return Ok(unsafe { OffsetBuffer::new_unchecked(buffer) });
+}
+
+fn build_buffer(client: &mut IPCClient, buffer: &Buffer) -> Result<BlobWriter> {
+    let mut blob = client.create_blob(buffer.len())?;
+    unsafe {
+        std::ptr::copy_nonoverlapping(buffer.as_ptr(), blob.as_typed_mut_ptr::<u8>(), buffer.len());
+    };
+    return Ok(blob);
+}
+
+fn build_null_bitmap_buffer(
+    client: &mut IPCClient,
+    buffer: Option<&NullBuffer>,
+) -> Result<Option<BlobWriter>> {
+    match buffer {
+        None => {
+            return Ok(None);
+        }
+        Some(buffer) => {
+            let null_bitmap = build_buffer(client, buffer.buffer())?;
+            return Ok(Some(null_bitmap));
+        }
+    }
+}
+
+fn build_scalar_buffer<T: NumericType>(
+    client: &mut IPCClient,
+    buffer: &TypedBuffer<T>,
+) -> Result<BlobWriter> {
+    let values = build_buffer(client, buffer.inner())?;
+    return Ok(values);
+}
+
+fn build_offsets_buffer<O: OffsetSizeTrait>(
+    client: &mut IPCClient,
+    buffer: &OffsetBuffer<O>,
+) -> Result<BlobWriter> {
+    let offsets = build_buffer(client, buffer.inner().inner())?;
+    return Ok(offsets);
+}

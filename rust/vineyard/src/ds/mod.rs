@@ -16,5 +16,6 @@ pub mod array;
 pub mod array_test;
 pub mod arrow;
 pub mod arrow_test;
+pub mod arrow_utils;
 pub mod hashmap;
 pub mod hashmap_test;

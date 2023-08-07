@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use static_str_ops::*;
+
 /// A trait to generate specialized type name for given Rust type.
 ///
 /// Note that the `typename()` method doesn't return `&'static str` for
@@ -21,21 +23,21 @@
 ///
 /// We temporarily use `String` as the return type and leave it as a TODO.
 pub trait TypeName {
-    fn typename() -> String {
-        return std::any::type_name::<Self>().into();
+    fn typename() -> &'static str where Self: Sized {
+        return staticize_once!(std::any::type_name::<Self>());
     }
 }
 
 /// Generate typename for given type in Rust.
-pub fn typename<T: TypeName>() -> String {
+pub fn typename<T: TypeName>() -> &'static str {
     return T::typename();
 }
 
 macro_rules! impl_typename {
     ($t:ty, $name:expr) => {
         impl TypeName for $t {
-            fn typename() -> String {
-                return $name.into();
+            fn typename() -> &'static str {
+                return $name;
             }
         }
     };

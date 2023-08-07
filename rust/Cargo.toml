@@ -1,4 +1,5 @@
-edition = "2021"
-
 [workspace]
-members = ["vineyard"]
+members = [
+    "vineyard",
+]
+resolver = "2"
