@@ -17,7 +17,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 
-use arrow::buffer;
+use arrow_buffer::Buffer;
 
 use crate::common::util::arrow::*;
 use crate::common::util::status::*;
@@ -36,7 +36,7 @@ use super::object_meta::ObjectMeta;
 pub struct Blob {
     meta: ObjectMeta,
     size: usize,
-    buffer: Option<buffer::Buffer>,
+    buffer: Option<Buffer>,
 }
 
 impl_typename!(Blob, "vineyard::Blob");
@@ -46,7 +46,7 @@ impl Default for Blob {
         Blob {
             meta: ObjectMeta::default(),
             size: usize::MAX,
-            buffer: None as Option<buffer::Buffer>,
+            buffer: None as Option<Buffer>,
         }
     }
 }
@@ -87,7 +87,7 @@ impl Display for Blob {
 }
 
 impl Blob {
-    pub fn new(meta: ObjectMeta, size: usize, buffer: Option<buffer::Buffer>) -> Self {
+    pub fn new(meta: ObjectMeta, size: usize, buffer: Option<Buffer>) -> Self {
         Blob {
             meta: meta,
             size: size,
@@ -145,7 +145,7 @@ impl Blob {
         return unsafe { std::slice::from_raw_parts(self.as_ptr_unchecked(), self.size) };
     }
 
-    pub fn buffer(&self) -> Result<buffer::Buffer> {
+    pub fn buffer(&self) -> Result<Buffer> {
         match &self.buffer {
             None => {
                 if self.size > 0 {
@@ -171,7 +171,7 @@ impl Blob {
         }
     }
 
-    pub fn buffer_unchecked(&self) -> buffer::Buffer {
+    pub fn buffer_unchecked(&self) -> Buffer {
         match &self.buffer {
             None => {
                 let buffer = arrow_buffer_null();
@@ -203,7 +203,7 @@ pub struct BlobWriter {
     sealed: bool,
     client: *mut IPCClient,
     object_id: ObjectID,
-    buffer: ManuallyDrop<Option<buffer::Buffer>>,
+    buffer: ManuallyDrop<Option<Buffer>>,
     metadata: HashMap<String, String>,
 }
 
@@ -248,7 +248,7 @@ impl ObjectBase for BlobWriter {
 }
 
 impl BlobWriter {
-    pub fn new(id: ObjectID, buffer: Option<buffer::Buffer>) -> Self {
+    pub fn new(id: ObjectID, buffer: Option<Buffer>) -> Self {
         BlobWriter {
             sealed: false,
             client: std::ptr::null_mut(),
@@ -258,11 +258,7 @@ impl BlobWriter {
         }
     }
 
-    pub fn new_with_client(
-        client: *mut IPCClient,
-        id: ObjectID,
-        buffer: Option<buffer::Buffer>,
-    ) -> Self {
+    pub fn new_with_client(client: *mut IPCClient, id: ObjectID, buffer: Option<Buffer>) -> Self {
         BlobWriter {
             sealed: false,
             client: client,
@@ -310,11 +306,11 @@ impl BlobWriter {
         return unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.size()) };
     }
 
-    pub fn buffer(&self) -> Option<&buffer::Buffer> {
+    pub fn buffer(&self) -> Option<&Buffer> {
         return self.buffer.as_ref();
     }
 
-    pub fn release(mut self) -> Option<buffer::Buffer> {
+    pub fn release(mut self) -> Option<Buffer> {
         return unsafe { ManuallyDrop::take(&mut self.buffer) };
     }
 
@@ -365,14 +361,14 @@ impl AsRef<[u8]> for BlobWriter {
 
 pub struct BufferSet {
     buffer_ids: HashSet<ObjectID>,
-    buffers: HashMap<ObjectID, Option<buffer::Buffer>>,
+    buffers: HashMap<ObjectID, Option<Buffer>>,
 }
 
 impl Default for BufferSet {
     fn default() -> BufferSet {
         BufferSet {
             buffer_ids: HashSet::new() as HashSet<ObjectID>,
-            buffers: HashMap::new() as HashMap<ObjectID, Option<buffer::Buffer>>,
+            buffers: HashMap::new() as HashMap<ObjectID, Option<Buffer>>,
         }
     }
 }
@@ -403,11 +399,11 @@ impl BufferSet {
         return &self.buffer_ids;
     }
 
-    pub fn buffers(&self) -> &HashMap<ObjectID, Option<buffer::Buffer>> {
+    pub fn buffers(&self) -> &HashMap<ObjectID, Option<Buffer>> {
         return &self.buffers;
     }
 
-    pub fn buffers_mut(&mut self) -> &mut HashMap<ObjectID, Option<buffer::Buffer>> {
+    pub fn buffers_mut(&mut self) -> &mut HashMap<ObjectID, Option<Buffer>> {
         return &mut self.buffers;
     }
 
@@ -427,7 +423,7 @@ impl BufferSet {
         }
     }
 
-    pub fn emplace_buffer(&mut self, id: ObjectID, buffer: Option<buffer::Buffer>) -> Result<()> {
+    pub fn emplace_buffer(&mut self, id: ObjectID, buffer: Option<Buffer>) -> Result<()> {
         match self.buffers.get(&id) {
             Some(Some(_)) => {
                 return Err(VineyardError::invalid(format!(
@@ -467,7 +463,7 @@ impl BufferSet {
         return self.buffers.get(&id).is_some();
     }
 
-    pub fn get(&self, id: ObjectID) -> Result<Option<buffer::Buffer>> {
+    pub fn get(&self, id: ObjectID) -> Result<Option<Buffer>> {
         return self
             .buffers
             .get(&id)

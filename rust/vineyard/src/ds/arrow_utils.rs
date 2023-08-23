@@ -12,19 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use arrow::datatypes::*;
-use arrow::error::ArrowError;
 use arrow_array::array::*;
 use arrow_array::builder::*;
+use arrow_array::types::*;
+use arrow_schema::{ArrowError, DataType};
 
 use crate::common::util::status::*;
 
 impl From<ArrowError> for VineyardError {
     fn from(error: ArrowError) -> Self {
-        VineyardError {
-            code: StatusCode::ArrowError,
-            message: format!("{}", error),
-        }
+        VineyardError::new(StatusCode::ArrowError, format!("{}", error))
     }
 }
 

@@ -17,7 +17,7 @@ use std::io;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 
-use arrow::buffer;
+use arrow_buffer::Buffer;
 use parking_lot::ReentrantMutex;
 use parking_lot::ReentrantMutexGuard;
 
@@ -361,7 +361,7 @@ impl IPCClient {
         return Ok(Blob::new(meta, size, buffer));
     }
 
-    fn create_buffer(&mut self, size: usize) -> Result<(ObjectID, Option<buffer::Buffer>)> {
+    fn create_buffer(&mut self, size: usize) -> Result<(ObjectID, Option<Buffer>)> {
         if size == 0 {
             return Ok((empty_blob_id(), Some(arrow_buffer_null())));
         }
@@ -383,7 +383,7 @@ impl IPCClient {
         return Ok((reply.id, Some(buffer)));
     }
 
-    fn get_buffer(&mut self, id: ObjectID, unsafe_: bool) -> Result<Option<buffer::Buffer>> {
+    fn get_buffer(&mut self, id: ObjectID, unsafe_: bool) -> Result<Option<Buffer>> {
         let buffers = self.get_buffers(&[id], unsafe_)?;
         return buffers
             .get(&id)
@@ -398,7 +398,7 @@ impl IPCClient {
         &mut self,
         ids: &[ObjectID],
         unsafe_: bool,
-    ) -> Result<HashMap<ObjectID, Option<buffer::Buffer>>> {
+    ) -> Result<HashMap<ObjectID, Option<Buffer>>> {
         let _ = self.ensure_connect()?;
         let message_out = write_get_buffers_request(&ids, unsafe_)?;
         self.do_write(&message_out)?;

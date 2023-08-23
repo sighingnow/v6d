@@ -21,8 +21,10 @@ name = "vineyard"
 path = "src/lib.rs"
 
 [dependencies]
-arrow = "45"
 arrow-array = "45"
+arrow-buffer = "45"
+arrow-ipc = "45"
+arrow-schema = "45"
 ctor = "0.2"
 downcast-rs = "1.2"
 env_logger = "0.9"
@@ -39,7 +41,6 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 static_str_ops = "0.1.2"
-thiserror = "1.0"
 
 [dev-dependencies]
 spectral = "*"

@@ -23,7 +23,10 @@ use static_str_ops::*;
 ///
 /// We temporarily use `String` as the return type and leave it as a TODO.
 pub trait TypeName {
-    fn typename() -> &'static str where Self: Sized {
+    fn typename() -> &'static str
+    where
+        Self: Sized,
+    {
         return staticize_once!(std::any::type_name::<Self>());
     }
 }

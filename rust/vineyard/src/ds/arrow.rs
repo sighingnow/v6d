@@ -16,10 +16,13 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use arrow::array;
-use arrow::buffer::{BooleanBuffer, Buffer, NullBuffer, OffsetBuffer, ScalarBuffer};
+use arrow_array as array;
+use arrow_array::builder;
 use arrow_array::builder::GenericStringBuilder;
 use arrow_array::{ArrayRef, GenericStringArray, OffsetSizeTrait};
+use arrow_buffer::{BooleanBuffer, Buffer, NullBuffer, OffsetBuffer, ScalarBuffer};
+use arrow_ipc as ipc;
+use arrow_schema as schema;
 
 use downcast_rs::impl_downcast;
 
@@ -61,7 +64,7 @@ pub type TypedBuffer<T> =
     ScalarBuffer<<<T as ToArrowType>::Type as array::ArrowPrimitiveType>::Native>;
 
 pub type TypedArray<T> = array::PrimitiveArray<<T as ToArrowType>::Type>;
-pub type TypedBuilder<T> = array::PrimitiveBuilder<<T as ToArrowType>::Type>;
+pub type TypedBuilder<T> = builder::PrimitiveBuilder<<T as ToArrowType>::Type>;
 
 pub struct NumericArray<T: NumericType> {
     meta: ObjectMeta,
@@ -324,6 +327,10 @@ impl<O: OffsetSizeTrait> Object for BaseStringArray<O> {
 }
 
 register_vineyard_object!(BaseStringArray<O: OffsetSizeTrait>);
+register_vineyard_types! {
+    StringArray;
+    LargeStringArray;
+}
 
 impl<O: OffsetSizeTrait> BaseStringArray<O> {
     pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
@@ -526,34 +533,29 @@ pub fn build_array(client: &mut IPCClient, array: ArrayRef) -> Result<Box<dyn Ob
                 Some(array) => match <$builder_ty>::new_from_array(client, array) {
                     Ok(builder) => match builder.seal(client) {
                         Ok(object) => Ok(object),
-                        Err(_) => Err(array as &dyn arrow::array::Array),
+                        Err(_) => Err(array as &dyn array::Array),
                     },
-                    Err(_) => Err(array as &dyn arrow::array::Array),
+                    Err(_) => Err(array as &dyn array::Array),
                 },
                 None => Err($array),
             }
         };
     }
 
-    let mut array: std::result::Result<Box<dyn Object>, &dyn arrow::array::Array> =
-        Err(array.as_ref());
+    let mut array: std::result::Result<Box<dyn Object>, &dyn array::Array> = Err(array.as_ref());
     array = array
-        .or_else(build!(array, arrow::array::Int8Array, Int8Builder))
-        .or_else(build!(array, arrow::array::UInt8Array, UInt8Builder))
-        .or_else(build!(array, arrow::array::Int16Array, Int16Builder))
-        .or_else(build!(array, arrow::array::UInt16Array, UInt16Builder))
-        .or_else(build!(array, arrow::array::Int32Array, Int32Builder))
-        .or_else(build!(array, arrow::array::UInt32Array, UInt32Builder))
-        .or_else(build!(array, arrow::array::Int64Array, Int64Builder))
-        .or_else(build!(array, arrow::array::UInt64Array, UInt64Builder))
-        .or_else(build!(array, arrow::array::Float32Array, Float32Builder))
-        .or_else(build!(array, arrow::array::Float64Array, Float64Builder))
-        .or_else(build!(array, arrow::array::StringArray, StringBuilder))
-        .or_else(build!(
-            array,
-            arrow::array::LargeStringArray,
-            LargeStringBuilder
-        ));
+        .or_else(build!(array, array::Int8Array, Int8Builder))
+        .or_else(build!(array, array::UInt8Array, UInt8Builder))
+        .or_else(build!(array, array::Int16Array, Int16Builder))
+        .or_else(build!(array, array::UInt16Array, UInt16Builder))
+        .or_else(build!(array, array::Int32Array, Int32Builder))
+        .or_else(build!(array, array::UInt32Array, UInt32Builder))
+        .or_else(build!(array, array::Int64Array, Int64Builder))
+        .or_else(build!(array, array::UInt64Array, UInt64Builder))
+        .or_else(build!(array, array::Float32Array, Float32Builder))
+        .or_else(build!(array, array::Float64Array, Float64Builder))
+        .or_else(build!(array, array::StringArray, StringBuilder))
+        .or_else(build!(array, array::LargeStringArray, LargeStringBuilder));
 
     match array {
         Ok(builder) => return Ok(builder),
@@ -568,7 +570,7 @@ pub fn build_array(client: &mut IPCClient, array: ArrayRef) -> Result<Box<dyn Ob
 
 pub struct SchemaProxy {
     meta: ObjectMeta,
-    schema: arrow::datatypes::Schema,
+    schema: schema::Schema,
 }
 
 impl TypeName for SchemaProxy {
@@ -581,7 +583,7 @@ impl Default for SchemaProxy {
     fn default() -> Self {
         SchemaProxy {
             meta: ObjectMeta::default(),
-            schema: arrow::datatypes::Schema::empty(),
+            schema: schema::Schema::empty(),
         }
     }
 }
@@ -591,7 +593,21 @@ impl Object for SchemaProxy {
         vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
         self.meta = meta;
         let schema = self.meta.get_vector::<u8>("schema_binary_")?;
-        self.schema = arrow::ipc::convert::try_schema_from_ipc_buffer(schema.as_slice())?;
+        match ipc::root_as_message(schema.as_slice()) {
+            Ok(message) => match message.header_as_schema() {
+                Some(schema) => {
+                    self.schema = ipc::convert::fb_to_schema(schema);
+                }
+                None => return Err(VineyardError::invalid(
+                    "construct schema from binary failed: failed to construct schema from header",
+                )),
+            },
+            Err(_) => {
+                return Err(VineyardError::invalid(
+                    "construct schema from binary failed: failed to construct message",
+                ))
+            }
+        }
         return Ok(());
     }
 }
@@ -605,7 +621,7 @@ impl SchemaProxy {
         return Ok(Box::new(schema));
     }
 
-    pub fn schema(&self) -> &arrow::datatypes::Schema {
+    pub fn schema(&self) -> &schema::Schema {
         return &self.schema;
     }
 }
@@ -647,9 +663,9 @@ impl ObjectBase for SchemaProxyBuilder {
 }
 
 impl SchemaProxyBuilder {
-    pub fn new(schema: &arrow::datatypes::Schema) -> Result<Self> {
-        let generator = arrow::ipc::writer::IpcDataGenerator {};
-        let ipc_write_options = arrow::ipc::writer::IpcWriteOptions::default();
+    pub fn new(schema: &schema::Schema) -> Result<Self> {
+        let generator = ipc::writer::IpcDataGenerator {};
+        let ipc_write_options = ipc::writer::IpcWriteOptions::default();
         let schema_binary = generator
             .schema_to_bytes(&schema, &ipc_write_options)
             .ipc_message;
@@ -661,14 +677,14 @@ impl SchemaProxyBuilder {
         });
     }
 
-    pub fn new_from_builder(builder: arrow::datatypes::SchemaBuilder) -> Result<Self> {
+    pub fn new_from_builder(builder: schema::SchemaBuilder) -> Result<Self> {
         return Self::new(&builder.finish());
     }
 }
 
 pub struct RecordBatch {
     meta: ObjectMeta,
-    batch: arrow::record_batch::RecordBatch,
+    batch: array::RecordBatch,
 }
 
 impl TypeName for RecordBatch {
@@ -681,9 +697,7 @@ impl Default for RecordBatch {
     fn default() -> Self {
         RecordBatch {
             meta: ObjectMeta::default(),
-            batch: arrow::record_batch::RecordBatch::new_empty(Arc::new(
-                arrow::datatypes::Schema::empty(),
-            )),
+            batch: array::RecordBatch::new_empty(Arc::new(schema::Schema::empty())),
         }
     }
 }
@@ -702,7 +716,7 @@ impl Object for RecordBatch {
             let column = self.meta.get_member_untyped(&format!("__columns_-{}", i))?;
             arrays.push(downcast_to_array(column)?.array());
         }
-        self.batch = arrow::record_batch::RecordBatch::try_new(Arc::new(schema.clone()), arrays)?;
+        self.batch = array::RecordBatch::try_new(Arc::new(schema.clone()), arrays)?;
         return Ok(());
     }
 }
@@ -716,11 +730,11 @@ impl RecordBatch {
         return Ok(Box::new(batch));
     }
 
-    pub fn batch(&self) -> &arrow::record_batch::RecordBatch {
+    pub fn batch(&self) -> &array::RecordBatch {
         return &self.batch;
     }
 
-    pub fn schema(&self) -> Arc<arrow::datatypes::Schema> {
+    pub fn schema(&self) -> Arc<schema::Schema> {
         return self.batch.schema();
     }
 
@@ -777,7 +791,7 @@ impl ObjectBase for RecordBatchBuilder {
 }
 
 impl RecordBatchBuilder {
-    pub fn new(client: &mut IPCClient, batch: arrow::record_batch::RecordBatch) -> Result<Self> {
+    pub fn new(client: &mut IPCClient, batch: &array::RecordBatch) -> Result<Self> {
         let schema = SchemaProxyBuilder::new(&batch.schema())?;
 
         let mut columns = Vec::with_capacity(batch.num_columns());
@@ -792,6 +806,152 @@ impl RecordBatchBuilder {
             row_num: batch.num_rows(),
             column_num: batch.num_columns(),
             columns: columns,
+        });
+    }
+}
+
+pub struct Table {
+    meta: ObjectMeta,
+    schema: schema::Schema,
+    num_rows: usize,
+    num_columns: usize,
+    batches: Vec<Box<RecordBatch>>,
+}
+
+impl TypeName for Table {
+    fn typename() -> &'static str {
+        return staticize("vineyard::Table");
+    }
+}
+
+impl Default for Table {
+    fn default() -> Self {
+        Table {
+            meta: ObjectMeta::default(),
+            schema: schema::Schema::empty(),
+            num_rows: 0,
+            num_columns: 0,
+            batches: Vec::new(),
+        }
+    }
+}
+
+impl Object for Table {
+    fn construct(&mut self, meta: ObjectMeta) -> Result<()> {
+        vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
+        self.meta = meta;
+        let schema = self.meta.get_member::<SchemaProxy>("schema_")?;
+        let schema = schema.schema();
+        let _num_rows = self.meta.get_usize("num_rows_")?;
+        let _num_columns = self.meta.get_usize("num_columns_")?;
+        let _batch_num = self.meta.get_usize("batch_num_")?;
+        let partitions_size = self.meta.get_usize("partitions_-size")?;
+        let mut batches = Vec::with_capacity(partitions_size);
+        for i in 0..partitions_size {
+            let batch = self
+                .meta
+                .get_member::<RecordBatch>(&format!("partitions_-{}", i))?;
+            batches.push(batch);
+        }
+        self.schema = schema.clone();
+        self.batches = batches;
+        return Ok(());
+    }
+}
+
+register_vineyard_object!(Table);
+
+impl Table {
+    pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
+        let mut table = Table::default();
+        table.construct(meta)?;
+        return Ok(Box::new(table));
+    }
+
+    pub fn schema(&self) -> &schema::Schema {
+        return &self.schema;
+    }
+
+    pub fn num_rows(&self) -> usize {
+        return self.num_rows;
+    }
+
+    pub fn num_columns(&self) -> usize {
+        return self.num_columns;
+    }
+
+    pub fn batches(&self) -> &[Box<RecordBatch>] {
+        return &self.batches;
+    }
+}
+
+pub struct TableBuilder {
+    sealed: bool,
+    schema: SchemaProxyBuilder,
+    num_rows: usize,
+    num_columns: usize,
+    batches: Vec<Box<dyn Object>>,
+}
+
+impl ObjectBuilder for TableBuilder {
+    fn sealed(&self) -> bool {
+        self.sealed
+    }
+
+    fn set_sealed(&mut self, sealed: bool) {
+        self.sealed = sealed;
+    }
+}
+
+impl ObjectBase for TableBuilder {
+    fn build(&mut self, client: &mut IPCClient) -> Result<()> {
+        if self.sealed {
+            return Ok(());
+        }
+        self.set_sealed(true);
+        self.schema.build(client)?;
+        return Ok(());
+    }
+
+    fn seal(mut self, client: &mut IPCClient) -> Result<Box<dyn Object>> {
+        self.build(client)?;
+        let mut meta = ObjectMeta::new_from_typename(typename::<Table>());
+        meta.add_member("schema_", self.schema.seal(client)?)?;
+        meta.add_usize("num_rows_", self.num_rows);
+        meta.add_usize("num_columns_", self.num_columns);
+        meta.add_usize("batch_num_", self.batches.len());
+        meta.add_usize("partitions_-size", self.batches.len());
+        for (i, batch) in self.batches.into_iter().enumerate() {
+            meta.add_member(&format!("partitions_-{}", i), batch)?;
+        }
+        let metadata = client.create_metadata(&meta)?;
+        return Table::new_boxed(metadata);
+    }
+}
+
+impl TableBuilder {
+    pub fn new(
+        client: &mut IPCClient,
+        schema: &schema::Schema,
+        table: &[array::RecordBatch],
+    ) -> Result<Self> {
+        let schema = SchemaProxyBuilder::new(schema)?;
+
+        let mut batches = Vec::with_capacity(table.len());
+        let mut num_rows = 0;
+        let mut num_columns = 0;
+        for batch in table {
+            num_rows += batch.num_rows();
+            num_columns = batch.num_columns();
+            let batch = RecordBatchBuilder::new(client, batch)?;
+            batches.push(batch.seal(client)?);
+        }
+        return Ok(TableBuilder {
+            sealed: false,
+            schema: schema,
+            num_rows: num_rows,
+            num_columns: num_columns,
+            batches: batches,
         });
     }
 }

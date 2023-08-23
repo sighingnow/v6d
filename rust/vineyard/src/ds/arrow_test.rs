@@ -16,7 +16,8 @@
 mod tests {
     use std::sync::Arc;
 
-    use arrow::array;
+    use arrow_array as array;
+    use arrow_schema as schema;
     use spectral::prelude::*;
 
     use super::super::arrow::*;
@@ -162,12 +163,12 @@ mod tests {
         let array1 = array::Float64Array::from(vec1);
         let array2 = array::LargeStringArray::from(vec2);
 
-        let schema = arrow::datatypes::Schema::new(vec![
-            arrow::datatypes::Field::new("f0", arrow::datatypes::DataType::Int32, false),
-            arrow::datatypes::Field::new("f1", arrow::datatypes::DataType::Float64, false),
-            arrow::datatypes::Field::new("f2", arrow::datatypes::DataType::LargeUtf8, false),
+        let schema = schema::Schema::new(vec![
+            schema::Field::new("f0", schema::DataType::Int32, false),
+            schema::Field::new("f1", schema::DataType::Float64, false),
+            schema::Field::new("f2", schema::DataType::LargeUtf8, false),
         ]);
-        let batch = arrow::record_batch::RecordBatch::try_new(
+        let batch = array::RecordBatch::try_new(
             Arc::new(schema),
             vec![Arc::new(array0), Arc::new(array1), Arc::new(array2)],
         )?;
@@ -176,7 +177,7 @@ mod tests {
 
         // build into vineyard
         {
-            let builder = RecordBatchBuilder::new(&mut client, batch)?;
+            let builder = RecordBatchBuilder::new(&mut client, &batch)?;
             let object = builder.seal(&mut client)?;
             let recordbatch = downcast_object::<RecordBatch>(object)?;
             recordbatch_object_id = recordbatch.id();
@@ -185,17 +186,31 @@ mod tests {
 
             let recordbatch = recordbatch.batch();
 
-            let column0 = recordbatch.column(0).as_any().downcast_ref::<arrow::array::Int32Array>().ok_or(VineyardError::type_error("downcast to Int32Array failed"))?;
+            let column0 = recordbatch
+                .column(0)
+                .as_any()
+                .downcast_ref::<array::Int32Array>()
+                .ok_or(VineyardError::type_error("downcast to Int32Array failed"))?;
             for (idx, item) in column0.iter().enumerate() {
                 assert_that!(item).is_equal_to(Some(idx as i32));
             }
 
-            let column1 = recordbatch.column(0).as_any().downcast_ref::<arrow::array::Float64Array>().ok_or(VineyardError::type_error("downcast to Float64Array failed"))?;
+            let column1 = recordbatch
+                .column(1)
+                .as_any()
+                .downcast_ref::<array::Float64Array>()
+                .ok_or(VineyardError::type_error("downcast to Float64Array failed"))?;
             for (idx, item) in column1.iter().enumerate() {
                 assert_that!(item).is_equal_to(Some(idx as f64));
             }
 
-            let column2 = recordbatch.column(2).as_any().downcast_ref::<arrow::array::LargeStringArray>().ok_or(VineyardError::type_error("downcast to LargeStringArray failed"))?;
+            let column2 = recordbatch
+                .column(2)
+                .as_any()
+                .downcast_ref::<array::LargeStringArray>()
+                .ok_or(VineyardError::type_error(
+                    "downcast to LargeStringArray failed",
+                ))?;
             for (idx, item) in column2.iter().enumerate() {
                 assert_that!(item).is_equal_to(Some(format!("{}", idx).as_str()));
             }
@@ -212,17 +227,31 @@ mod tests {
 
             let recordbatch = recordbatch.batch();
 
-            let column0 = recordbatch.column(0).as_any().downcast_ref::<arrow::array::Int32Array>().ok_or(VineyardError::type_error("downcast to Int32Array failed"))?;
+            let column0 = recordbatch
+                .column(0)
+                .as_any()
+                .downcast_ref::<array::Int32Array>()
+                .ok_or(VineyardError::type_error("downcast to Int32Array failed"))?;
             for (idx, item) in column0.iter().enumerate() {
                 assert_that!(item).is_equal_to(Some(idx as i32));
             }
 
-            let column1 = recordbatch.column(0).as_any().downcast_ref::<arrow::array::Float64Array>().ok_or(VineyardError::type_error("downcast to Float64Array failed"))?;
+            let column1 = recordbatch
+                .column(1)
+                .as_any()
+                .downcast_ref::<array::Float64Array>()
+                .ok_or(VineyardError::type_error("downcast to Float64Array failed"))?;
             for (idx, item) in column1.iter().enumerate() {
                 assert_that!(item).is_equal_to(Some(idx as f64));
             }
 
-            let column2 = recordbatch.column(2).as_any().downcast_ref::<arrow::array::LargeStringArray>().ok_or(VineyardError::type_error("downcast to LargeStringArray failed"))?;
+            let column2 = recordbatch
+                .column(2)
+                .as_any()
+                .downcast_ref::<array::LargeStringArray>()
+                .ok_or(VineyardError::type_error(
+                    "downcast to LargeStringArray failed",
+                ))?;
             for (idx, item) in column2.iter().enumerate() {
                 assert_that!(item).is_equal_to(Some(format!("{}", idx).as_str()));
             }

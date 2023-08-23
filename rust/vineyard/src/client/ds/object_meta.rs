@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
 
-use arrow::buffer;
+use arrow_buffer::Buffer;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -421,7 +421,7 @@ impl ObjectMeta {
         }
     }
 
-    pub fn get_buffer(&self, blob_id: ObjectID) -> Result<Option<buffer::Buffer>> {
+    pub fn get_buffer(&self, blob_id: ObjectID) -> Result<Option<Buffer>> {
         return self.buffers.get(blob_id).map_err(|err| {
             VineyardError::invalid(format!(
                 "The target blob {} doesn't exist: {}",
@@ -431,7 +431,7 @@ impl ObjectMeta {
         });
     }
 
-    pub fn set_buffer(&mut self, id: ObjectID, buffer: Option<buffer::Buffer>) -> Result<()> {
+    pub fn set_buffer(&mut self, id: ObjectID, buffer: Option<Buffer>) -> Result<()> {
         match self.get_buffers_mut() {
             Ok(buffers) => {
                 buffers.emplace_buffer(id, buffer)?;
@@ -443,11 +443,7 @@ impl ObjectMeta {
         return Ok(());
     }
 
-    pub fn set_or_add_buffer(
-        &mut self,
-        id: ObjectID,
-        buffer: Option<buffer::Buffer>,
-    ) -> Result<()> {
+    pub fn set_or_add_buffer(&mut self, id: ObjectID, buffer: Option<Buffer>) -> Result<()> {
         match self.get_buffers_mut() {
             Ok(buffers) => {
                 let _ = buffers.emplace(id); // ensure the id exists

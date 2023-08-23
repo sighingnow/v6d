@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::backtrace::{Backtrace, BacktraceStatus};
 use std::env::VarError as EnvVarError;
 use std::io::Error as IOError;
 use std::num::{ParseFloatError, ParseIntError, TryFromIntError};
@@ -19,7 +20,6 @@ use std::sync::PoisonError;
 
 use num_derive::{FromPrimitive, ToPrimitive};
 use serde_json::Error as JSONError;
-use thiserror::Error;
 
 use super::uuid::ObjectID;
 
@@ -72,71 +72,24 @@ pub enum StatusCode {
     UnknownError = 255,
 }
 
-#[derive(Error, Debug, Clone)]
 pub struct VineyardError {
     pub code: StatusCode,
     pub message: String,
+    pub backtrace: Backtrace,
 }
 
-impl From<IOError> for VineyardError {
-    fn from(error: IOError) -> Self {
-        VineyardError {
-            code: StatusCode::IOError,
-            message: format!("internal io error: {}", error),
-        }
-    }
-}
+impl std::error::Error for VineyardError {}
 
-impl From<EnvVarError> for VineyardError {
-    fn from(error: EnvVarError) -> Self {
-        VineyardError {
-            code: StatusCode::IOError,
-            message: format!("env var error: {}", error),
-        }
-    }
-}
-
-impl From<ParseIntError> for VineyardError {
-    fn from(error: ParseIntError) -> Self {
-        VineyardError {
-            code: StatusCode::IOError,
-            message: format!("parse int error: {}", error),
-        }
-    }
-}
-
-impl From<ParseFloatError> for VineyardError {
-    fn from(error: ParseFloatError) -> Self {
-        VineyardError {
-            code: StatusCode::IOError,
-            message: format!("parse float error: {}", error),
-        }
-    }
-}
-
-impl From<TryFromIntError> for VineyardError {
-    fn from(error: TryFromIntError) -> Self {
-        VineyardError {
-            code: StatusCode::IOError,
-            message: format!("try from int error: {}", error),
-        }
-    }
-}
-
-impl<T> From<PoisonError<T>> for VineyardError {
-    fn from(error: PoisonError<T>) -> Self {
-        VineyardError {
-            code: StatusCode::Invalid,
-            message: format!("lock poison error: {}", error),
-        }
-    }
-}
-
-impl From<JSONError> for VineyardError {
-    fn from(error: JSONError) -> Self {
-        VineyardError {
-            code: StatusCode::MetaTreeInvalid,
-            message: error.to_string(),
+impl std::fmt::Debug for VineyardError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.backtrace.status() == BacktraceStatus::Captured {
+            write!(
+                f,
+                "{:?}: {}\nBacktrace: {:?}",
+                self.code, self.message, self.backtrace
+            )
+        } else {
+            write!(f, "{:?}: {}", self.code, self.message)
         }
     }
 }
@@ -147,6 +100,51 @@ impl std::fmt::Display for VineyardError {
     }
 }
 
+impl From<IOError> for VineyardError {
+    fn from(error: IOError) -> Self {
+        VineyardError::new(StatusCode::IOError, format!("internal io error: {}", error))
+    }
+}
+
+impl From<EnvVarError> for VineyardError {
+    fn from(error: EnvVarError) -> Self {
+        VineyardError::new(StatusCode::IOError, format!("env var error: {}", error))
+    }
+}
+
+impl From<ParseIntError> for VineyardError {
+    fn from(error: ParseIntError) -> Self {
+        VineyardError::new(StatusCode::IOError, format!("parse int error: {}", error))
+    }
+}
+
+impl From<ParseFloatError> for VineyardError {
+    fn from(error: ParseFloatError) -> Self {
+        VineyardError::new(StatusCode::IOError, format!("parse float error: {}", error))
+    }
+}
+
+impl From<TryFromIntError> for VineyardError {
+    fn from(error: TryFromIntError) -> Self {
+        VineyardError::new(
+            StatusCode::IOError,
+            format!("try from int error: {}", error),
+        )
+    }
+}
+
+impl<T> From<PoisonError<T>> for VineyardError {
+    fn from(error: PoisonError<T>) -> Self {
+        VineyardError::new(StatusCode::Invalid, format!("lock poison error: {}", error))
+    }
+}
+
+impl From<JSONError> for VineyardError {
+    fn from(error: JSONError) -> Self {
+        VineyardError::new(StatusCode::IOError, format!("json error: {}", error))
+    }
+}
+
 pub type Result<T> = std::result::Result<T, VineyardError>;
 
 impl VineyardError {
@@ -154,273 +152,172 @@ impl VineyardError {
         VineyardError {
             code,
             message: message.into(),
+            backtrace: Backtrace::capture(),
         }
     }
 
-    pub fn wrap<T: Into<String>>(&self, message: T) -> Self {
+    pub fn wrap<T: Into<String>>(self, message: T) -> Self {
         if self.ok() {
-            return self.clone();
+            return self;
         }
-        VineyardError {
-            code: self.code.clone(),
-            message: format!("{}: {}", self.message, message.into()),
-        }
+        VineyardError::new(self.code, format!("{}: {}", self.message, message.into()))
     }
 
     pub fn invalid<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::Invalid,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::Invalid, message.into())
     }
 
     pub fn key_error<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::KeyError,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::KeyError, message)
     }
 
     pub fn type_error<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::TypeError,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::TypeError, message)
     }
 
     pub fn io_error<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::IOError,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::IOError, message)
     }
 
     pub fn end_of_file<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::EndOfFile,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::EndOfFile, message)
     }
 
     pub fn not_implemented<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::NotImplemented,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::NotImplemented, message)
     }
 
     pub fn assertion_failed<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::AssertionFailed,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::AssertionFailed, message)
     }
 
     pub fn user_input_error<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::UserInputError,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::UserInputError, message)
     }
 
     pub fn object_exists<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::ObjectExists,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::ObjectExists, message)
     }
 
     pub fn object_not_exists<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::ObjectNotExists,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::ObjectNotExists, message)
     }
 
     pub fn object_sealed<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::ObjectSealed,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::ObjectSealed, message)
     }
 
     pub fn object_not_sealed<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::ObjectNotSealed,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::ObjectNotSealed, message)
     }
 
     pub fn object_is_blob<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::ObjectIsBlob,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::ObjectIsBlob, message)
     }
 
     pub fn object_type_error<U: Into<String>, V: Into<String>>(expected: U, actual: V) -> Self {
-        VineyardError {
-            code: StatusCode::ObjectTypeError,
-            message: format!(
+        VineyardError::new(
+            StatusCode::ObjectTypeError,
+            format!(
                 "expect typename '{}', but got '{}'",
                 expected.into(),
                 actual.into()
             ),
-        }
+        )
     }
 
     pub fn object_spilled(object_id: ObjectID) -> Self {
-        VineyardError {
-            code: StatusCode::ObjectSpilled,
-            message: format!("object '{}' has already been spilled", object_id),
-        }
+        VineyardError::new(
+            StatusCode::ObjectSpilled,
+            format!("object '{}' has already been spilled", object_id),
+        )
     }
 
     pub fn object_not_spilled(object_id: ObjectID) -> Self {
-        VineyardError {
-            code: StatusCode::ObjectNotSpilled,
-            message: format!("object '{}' hasn't been spilled yet", object_id),
-        }
+        VineyardError::new(
+            StatusCode::ObjectNotSpilled,
+            format!("object '{}' hasn't been spilled yet", object_id),
+        )
     }
 
     pub fn meta_tree_invalid<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::MetaTreeInvalid,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::MetaTreeInvalid, message)
     }
 
     pub fn meta_tree_type_invalid<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::MetaTreeTypeInvalid,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::MetaTreeTypeInvalid, message)
     }
 
     pub fn meta_tree_type_not_exists<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::MetaTreeTypeNotExists,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::MetaTreeTypeNotExists, message)
     }
 
     pub fn meta_tree_name_invalid<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::MetaTreeNameInvalid,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::MetaTreeNameInvalid, message)
     }
 
     pub fn meta_tree_name_not_exists<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::MetaTreeNameNotExists,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::MetaTreeNameNotExists, message)
     }
 
     pub fn meta_tree_link_invalid<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::MetaTreeLinkInvalid,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::MetaTreeLinkInvalid, message)
     }
 
     pub fn meta_tree_subtree_not_exists<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::MetaTreeSubtreeNotExists,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::MetaTreeSubtreeNotExists, message)
     }
 
     pub fn vineyard_server_not_ready<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::VineyardServerNotReady,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::VineyardServerNotReady, message)
     }
 
     pub fn arrow_error<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::ArrowError,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::ArrowError, message)
     }
 
     pub fn connection_failed<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::ConnectionFailed,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::ConnectionFailed, message)
     }
 
     pub fn etcd_error<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::EtcdError,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::EtcdError, message)
     }
 
     pub fn redis_error<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::RedisError,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::RedisError, message)
     }
 
     pub fn already_stopped<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::AlreadyStopped,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::AlreadyStopped, message)
     }
 
     pub fn not_enough_memory<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::NotEnoughMemory,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::NotEnoughMemory, message)
     }
 
     pub fn stream_drained<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::StreamDrained,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::StreamDrained, message)
     }
 
     pub fn stream_failed<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::StreamFailed,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::StreamFailed, message)
     }
 
     pub fn invalid_stream_state<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::InvalidStreamState,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::InvalidStreamState, message)
     }
 
     pub fn stream_opened<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::StreamOpened,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::StreamOpened, message)
     }
 
     pub fn global_object_invalid<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::GlobalObjectInvalid,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::GlobalObjectInvalid, message)
     }
 
     pub fn unknown_error<T: Into<String>>(message: T) -> Self {
-        VineyardError {
-            code: StatusCode::UnknownError,
-            message: message.into(),
-        }
+        VineyardError::new(StatusCode::UnknownError, message)
     }
 
     pub fn ok(&self) -> bool {

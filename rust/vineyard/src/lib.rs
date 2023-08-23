@@ -20,6 +20,7 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 #![allow(clippy::redundant_field_names)]
 #![allow(clippy::unnecessary_cast)]
+#![allow(clippy::vec_box)]
 #![allow(incomplete_features)]
 #![allow(non_upper_case_globals)]
 #![cfg_attr(feature = "nightly", feature(associated_type_defaults))]
