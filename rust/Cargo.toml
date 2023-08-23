@@ -1,5 +1,6 @@
 [workspace]
 members = [
     "vineyard",
+    "vineyard-polars",
 ]
 resolver = "2"
