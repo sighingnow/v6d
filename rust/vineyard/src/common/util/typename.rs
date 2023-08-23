@@ -36,6 +36,7 @@ pub fn typename<T: TypeName>() -> &'static str {
     return T::typename();
 }
 
+#[macro_export]
 macro_rules! impl_typename {
     ($t:ty, $name:expr) => {
         impl TypeName for $t {
@@ -46,7 +47,7 @@ macro_rules! impl_typename {
     };
 }
 
-pub(crate) use impl_typename;
+pub use impl_typename;
 
 impl_typename!(i8, "int8");
 impl_typename!(u8, "uint8");

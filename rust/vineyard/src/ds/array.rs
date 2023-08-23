@@ -20,7 +20,7 @@ use static_str_ops::*;
 
 use crate::client::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Array<T> {
     meta: ObjectMeta,
     size: usize,
@@ -72,9 +72,9 @@ register_vineyard_types! {
 
 impl<T: TypeName + 'static> Array<T> {
     pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
-        let mut array: Array<T> = Array::default();
+        let mut array = Box::<Self>::default();
         array.construct(meta)?;
-        return Ok(Box::new(array));
+        return Ok(array);
     }
 
     pub fn size(&self) -> usize {

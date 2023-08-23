@@ -223,7 +223,7 @@ macro_rules! register_vineyard_object {
     };
 }
 
-pub(crate) use register_vineyard_object;
-pub(crate) use register_vineyard_type;
-pub(crate) use register_vineyard_type_impl;
-pub(crate) use register_vineyard_types;
+pub use register_vineyard_object;
+pub use register_vineyard_type;
+pub use register_vineyard_type_impl;
+pub use register_vineyard_types;

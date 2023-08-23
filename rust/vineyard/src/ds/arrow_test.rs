@@ -184,7 +184,7 @@ mod tests {
             assert_that!(recordbatch.num_rows()).is_equal_to(N);
             assert_that!(recordbatch.num_columns()).is_equal_to(3);
 
-            let recordbatch = recordbatch.batch();
+            let recordbatch = recordbatch.as_ref().as_ref();
 
             let column0 = recordbatch
                 .column(0)
@@ -225,7 +225,7 @@ mod tests {
             assert_that!(recordbatch.num_rows()).is_equal_to(N);
             assert_that!(recordbatch.num_columns()).is_equal_to(3);
 
-            let recordbatch = recordbatch.batch();
+            let recordbatch = recordbatch.as_ref().as_ref();
 
             let column0 = recordbatch
                 .column(0)

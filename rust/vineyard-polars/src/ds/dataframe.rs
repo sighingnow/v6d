@@ -12,5 +12,57 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[allow(unused_imports)]
-use std::any::Any;
+use polars_core::prelude as polars;
+use polars_core::prelude::NamedFrom;
+
+use vineyard::client::*;
+
+/// Convert a Polars error to a Vineyard error, as orphan impls are not allowed
+/// in Rust
+///
+/// Usage:
+///
+/// ```no_run
+/// let x = polars::DataFrame::new(...).map_err(error)?;
+/// ```
+fn error(error: polars::PolarsError) -> VineyardError {
+    VineyardError::invalid(format!("{}", error))
+}
+
+#[derive(Debug, Default)]
+pub struct DataFrame {
+    meta: ObjectMeta,
+    dataframe: polars::DataFrame,
+}
+
+impl_typename!(DataFrame, "vineyard::DataFrame");
+
+impl Object for DataFrame {
+    fn construct(&mut self, meta: ObjectMeta) -> Result<()> {
+        vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
+        let size = meta.get_usize("__values_-size")?;
+        // let mut columns = Vec::with_capacity(size);
+        for i in 0..size {
+            // let column_meta = meta.get_member::<ObjectMeta>(&format!("__values_{}_", i))?;
+            // let column = downcast_object::<Series>(column_meta.clone())?;
+            // columns.push(column);
+        }
+        return Ok(());
+    }
+}
+
+register_vineyard_object!(DataFrame);
+
+impl DataFrame {
+    pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
+        let mut object = Box::<Self>::default();
+        object.construct(meta)?;
+        Ok(object)
+    }
+}
+
+impl AsRef<polars::DataFrame> for DataFrame {
+    fn as_ref(&self) -> &polars::DataFrame {
+        &self.dataframe
+    }
+}

@@ -15,15 +15,7 @@
 use arrow_array::array::*;
 use arrow_array::builder::*;
 use arrow_array::types::*;
-use arrow_schema::{ArrowError, DataType};
-
-use crate::common::util::status::*;
-
-impl From<ArrowError> for VineyardError {
-    fn from(error: ArrowError) -> Self {
-        VineyardError::new(StatusCode::ArrowError, format!("{}", error))
-    }
-}
+use arrow_schema::DataType;
 
 pub trait ToArrowType {
     type Type;

@@ -23,6 +23,7 @@ use arrow_array::{ArrayRef, GenericStringArray, OffsetSizeTrait};
 use arrow_buffer::{BooleanBuffer, Buffer, NullBuffer, OffsetBuffer, ScalarBuffer};
 use arrow_ipc as ipc;
 use arrow_schema as schema;
+use arrow_schema::ArrowError;
 
 use downcast_rs::impl_downcast;
 
@@ -30,6 +31,12 @@ use static_str_ops::*;
 
 use super::arrow_utils::*;
 use crate::client::*;
+
+impl From<ArrowError> for VineyardError {
+    fn from(error: ArrowError) -> Self {
+        VineyardError::new(StatusCode::ArrowError, format!("{}", error))
+    }
+}
 
 pub trait Array: Object {
     fn array(&self) -> array::ArrayRef;
@@ -66,6 +73,7 @@ pub type TypedBuffer<T> =
 pub type TypedArray<T> = array::PrimitiveArray<<T as ToArrowType>::Type>;
 pub type TypedBuilder<T> = builder::PrimitiveBuilder<<T as ToArrowType>::Type>;
 
+#[derive(Debug)]
 pub struct NumericArray<T: NumericType> {
     meta: ObjectMeta,
     array: Arc<TypedArray<T>>,
@@ -130,9 +138,9 @@ register_vineyard_types! {
 
 impl<T: NumericType + TypeName + 'static> NumericArray<T> {
     pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
-        let mut array: NumericArray<T> = NumericArray::default();
+        let mut array = Box::<Self>::default();
         array.construct(meta)?;
-        return Ok(Box::new(array));
+        return Ok(array);
     }
 
     pub fn len(&self) -> usize {
@@ -281,6 +289,7 @@ impl<T: NumericType> NumericBuilder<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct BaseStringArray<O: OffsetSizeTrait> {
     meta: ObjectMeta,
     array: Arc<array::GenericStringArray<O>>,
@@ -334,9 +343,9 @@ register_vineyard_types! {
 
 impl<O: OffsetSizeTrait> BaseStringArray<O> {
     pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
-        let mut array = Self::default();
+        let mut array = Box::<Self>::default();
         array.construct(meta)?;
-        return Ok(Box::new(array));
+        return Ok(array);
     }
 
     pub fn as_array(&self) -> &array::GenericStringArray<O> {
@@ -568,6 +577,7 @@ pub fn build_array(client: &mut IPCClient, array: ArrayRef) -> Result<Box<dyn Ob
     };
 }
 
+#[derive(Debug)]
 pub struct SchemaProxy {
     meta: ObjectMeta,
     schema: schema::Schema,
@@ -616,12 +626,14 @@ register_vineyard_object!(SchemaProxy);
 
 impl SchemaProxy {
     pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
-        let mut schema = SchemaProxy::default();
+        let mut schema = Box::<Self>::default();
         schema.construct(meta)?;
-        return Ok(Box::new(schema));
+        return Ok(schema);
     }
+}
 
-    pub fn schema(&self) -> &schema::Schema {
+impl AsRef<schema::Schema> for SchemaProxy {
+    fn as_ref(&self) -> &schema::Schema {
         return &self.schema;
     }
 }
@@ -682,16 +694,13 @@ impl SchemaProxyBuilder {
     }
 }
 
+#[derive(Debug)]
 pub struct RecordBatch {
     meta: ObjectMeta,
     batch: array::RecordBatch,
 }
 
-impl TypeName for RecordBatch {
-    fn typename() -> &'static str {
-        return staticize("vineyard::RecordBatch");
-    }
-}
+impl_typename!(RecordBatch, "vineyard::RecordBatch");
 
 impl Default for RecordBatch {
     fn default() -> Self {
@@ -707,7 +716,7 @@ impl Object for RecordBatch {
         vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
         self.meta = meta;
         let schema = self.meta.get_member::<SchemaProxy>("schema_")?;
-        let schema = schema.schema();
+        let schema = schema.as_ref().as_ref().clone();
         let _num_rows = self.meta.get_usize("row_num_")?;
         let _num_columns = self.meta.get_usize("column_num_")?;
         let columns_size = self.meta.get_usize("__columns_-size")?;
@@ -716,7 +725,7 @@ impl Object for RecordBatch {
             let column = self.meta.get_member_untyped(&format!("__columns_-{}", i))?;
             arrays.push(downcast_to_array(column)?.array());
         }
-        self.batch = array::RecordBatch::try_new(Arc::new(schema.clone()), arrays)?;
+        self.batch = array::RecordBatch::try_new(Arc::new(schema), arrays)?;
         return Ok(());
     }
 }
@@ -725,13 +734,9 @@ register_vineyard_object!(RecordBatch);
 
 impl RecordBatch {
     pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
-        let mut batch = RecordBatch::default();
+        let mut batch = Box::<Self>::default();
         batch.construct(meta)?;
-        return Ok(Box::new(batch));
-    }
-
-    pub fn batch(&self) -> &array::RecordBatch {
-        return &self.batch;
+        return Ok(batch);
     }
 
     pub fn schema(&self) -> Arc<schema::Schema> {
@@ -744,6 +749,12 @@ impl RecordBatch {
 
     pub fn num_columns(&self) -> usize {
         return self.batch.num_columns();
+    }
+}
+
+impl AsRef<array::RecordBatch> for RecordBatch {
+    fn as_ref(&self) -> &array::RecordBatch {
+        return &self.batch;
     }
 }
 
@@ -810,6 +821,7 @@ impl RecordBatchBuilder {
     }
 }
 
+#[derive(Debug)]
 pub struct Table {
     meta: ObjectMeta,
     schema: schema::Schema,
@@ -818,11 +830,7 @@ pub struct Table {
     batches: Vec<Box<RecordBatch>>,
 }
 
-impl TypeName for Table {
-    fn typename() -> &'static str {
-        return staticize("vineyard::Table");
-    }
-}
+impl_typename!(Table, "vineyard::Table");
 
 impl Default for Table {
     fn default() -> Self {
@@ -841,7 +849,7 @@ impl Object for Table {
         vineyard_assert_typename(typename::<Self>(), meta.get_typename()?)?;
         self.meta = meta;
         let schema = self.meta.get_member::<SchemaProxy>("schema_")?;
-        let schema = schema.schema();
+        let schema = schema.as_ref().as_ref().clone();
         let _num_rows = self.meta.get_usize("num_rows_")?;
         let _num_columns = self.meta.get_usize("num_columns_")?;
         let _batch_num = self.meta.get_usize("batch_num_")?;
@@ -853,7 +861,7 @@ impl Object for Table {
                 .get_member::<RecordBatch>(&format!("partitions_-{}", i))?;
             batches.push(batch);
         }
-        self.schema = schema.clone();
+        self.schema = schema;
         self.batches = batches;
         return Ok(());
     }
@@ -863,9 +871,9 @@ register_vineyard_object!(Table);
 
 impl Table {
     pub fn new_boxed(meta: ObjectMeta) -> Result<Box<dyn Object>> {
-        let mut table = Table::default();
+        let mut table = Box::<Self>::default();
         table.construct(meta)?;
-        return Ok(Box::new(table));
+        return Ok(table);
     }
 
     pub fn schema(&self) -> &schema::Schema {
@@ -881,6 +889,12 @@ impl Table {
     }
 
     pub fn batches(&self) -> &[Box<RecordBatch>] {
+        return &self.batches;
+    }
+}
+
+impl AsRef<[Box<RecordBatch>]> for Table {
+    fn as_ref(&self) -> &[Box<RecordBatch>] {
         return &self.batches;
     }
 }

@@ -2,5 +2,24 @@
 members = [
     "vineyard",
     "vineyard-polars",
+    "vineyard-integration-testing",
 ]
 resolver = "2"
+
+[workspace.package]
+version = "0.16.2"
+homepage = "https://v6d.io"
+repository = "https://github.com/v6d-io/v6d.git"
+authors = ["Vineyard <vineyard@alibaba-inc.com>"]
+license = "Apache-2.0"
+keywords = ["vineyard"]
+include = [
+    "src/**/*.rs",
+    "Cargo.toml",
+]
+edition = "2021"
+
+[workspace.dependencies]
+vineyard = { version = "0.16.2", path = "./vineyard" }
+vineyard-polars = { version = "0.16.2", path = "./vineyard-polars" }
+vineyard-integration-testing = { version = "0.16.2", path = "./vineyard-integration-testing" }

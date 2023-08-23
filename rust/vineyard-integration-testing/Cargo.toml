@@ -1,7 +1,7 @@
 [package]
-name = "vineyard-polars"
+name = "vineyard-integration-testing"
 version = { workspace = true }
-description = "Vineyard Rust SDK: polars integration for DataFrame"
+description = "Vineyard Rust SDK: integration testing"
 homepage = { workspace = true }
 repository = { workspace = true }
 license = { workspace = true }
@@ -14,13 +14,12 @@ default = ["nightly"]
 nightly = []
 
 [lib]
-name = "vineyard_polars"
+name = "vineyard_integration_testing"
 path = "src/lib.rs"
 
 [dependencies]
-polars-core = "0.32"
-ndarray = "0.15"
 vineyard = { workspace = true }
+vineyard-polars = { workspace = true }
 
 [dev-dependencies]
 spectral = "*"
