@@ -14,5 +14,3 @@
 
 pub mod dataframe;
 pub mod dataframe_test;
-pub mod tensor;
-pub mod tensor_test;
