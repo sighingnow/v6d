@@ -73,10 +73,13 @@ void SendArrowArray<arrow::ChunkedArray>(
   std::shared_ptr<arrow::Buffer> buffer;
   // shouldn't fail
   ARROW_CHECK_OK(SerializeDataType(array->type(), &buffer));
+  LOG(INFO) << "SendArrowArray<arrow::ChunkedArray> type: " << array->type()->ToString() << " length: " 
+    << array->length() << " dst_worker_id: " << dst_worker_id << " buffer->size(): " << buffer->size();
   SendArrowBuffer(buffer, dst_worker_id, comm, tag);
 
   // length
   int64_t length = array->length();
+  // LOG(INFO) << "Send array length to " << dst_worker_id << " length: " << length;
   MPI_Send(&length, 1, MPI_INT64_T, dst_worker_id, tag, comm);
 
   // chunk_size
@@ -100,12 +103,15 @@ void RecvArrowArray<arrow::ChunkedArray>(
   std::shared_ptr<arrow::Buffer> buffer;
   RecvArrowBuffer(buffer, src_worker_id, comm, tag);
   // shouldn't fail
-  ARROW_CHECK_OK(DeserializeDataType(buffer, &type));
+  LOG(INFO) << " src_worker_id: " << src_worker_id << " buffer->size(): " << buffer->size();
+  auto st = DeserializeDataType(buffer, &type);
+  ARROW_CHECK_OK(st);
 
   // length
   int64_t length;
   MPI_Recv(&length, 1, MPI_INT64_T, src_worker_id, tag, comm,
            MPI_STATUS_IGNORE);
+  // LOG(INFO) << "Recv array length from " << src_worker_id << " length: " << length;
 
   // chunk_size
   int64_t num_chunks;

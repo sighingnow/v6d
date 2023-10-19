@@ -65,13 +65,17 @@ template <typename FRAG_T>
 boost::leaf::result<void> ArrowFragmentWriter<FRAG_T>::WriteFragment() {
   BOOST_LEAF_CHECK(WriteVertices());
   BOOST_LEAF_CHECK(WriteEdges());
+  MPI_Barrier(comm_spec_.comm());
   return {};
 }
 
 template <typename FRAG_T>
 boost::leaf::result<void> ArrowFragmentWriter<FRAG_T>::WriteVertices() {
+  LOG(INFO) << "Frag-" << frag_->fid() << " write vertices, vertex info num="
+            << graph_info_->GetVertexInfos().size();
   for (auto& item : graph_info_->GetVertexInfos()) {
     std::string label = item.first;
+    LOG(INFO) << "Frag-" << frag_->fid() << " write vertices of label: " << label;
     BOOST_LEAF_CHECK(WriteVertex(label));
   }
   return {};
@@ -102,18 +106,34 @@ boost::leaf::result<void> ArrowFragmentWriter<FRAG_T>::WriteVertex(
         std::ceil(vm_ptr->GetInnerVertexSize(fid, label_id) /
                   static_cast<double>(vertex_info.GetChunkSize())));
   }
+  if (label == "person") {
+    LOG(INFO) << "label: " << label << " chunk_index_begin: " << chunk_index_begin << " fid" << frag_->fid();
+  }
   GraphArchive::VertexPropertyWriter writer(vertex_info,
                                             graph_info_->GetPrefix());
   // write vertex data start from chunk index begin
   auto vertex_table = frag_->vertex_data_table(label_id);
+  auto num_rows = vertex_table->num_rows();
+  if (frag_->fid() != frag_->fnum() - 1 && num_rows % vertex_info.GetChunkSize() != 0) {
+    vertex_table = AppendNullsToArrowTable(vertex_table,
+                                           vertex_info.GetChunkSize() -
+                                           num_rows % vertex_info.GetChunkSize());
+    LOG(INFO) << "label: " << label << " origin num_rows: " << num_rows
+              << ", after append nulls: " << vertex_table->num_rows() ;
+  }
   auto st = writer.WriteTable(vertex_table, chunk_index_begin);
   if (!st.ok()) {
     RETURN_GS_ERROR(ErrorCode::kGraphArError, st.message());
   }
+  LOG(INFO) << "Frag-" << frag_->fid() << " write vertices of label: " << label
+            << " done.";
 
-  if (comm_spec_.worker_id() == 0) {
+  if (frag_->fid() == frag_->fnum() - 1) {
     // write vertex number
-    auto st = writer.WriteVerticesNum(vm_ptr->GetTotalNodesNum(label_id));
+    auto total_vertices_num = chunk_index_begin * vertex_info.GetChunkSize() +
+                              vertex_table->num_rows();
+    label_id_to_vnum_[label_id] = total_vertices_num; 
+    auto st = writer.WriteVerticesNum(total_vertices_num);
     if (!st.ok()) {
       RETURN_GS_ERROR(ErrorCode::kGraphArError, st.message());
     }
@@ -381,10 +401,9 @@ boost::leaf::result<void> ArrowFragmentWriter<FRAG_T>::writeEdgeImpl(
           "GAR error: " + std::to_string(static_cast<int>(st.code())) + ", " +
           st.message());
     }
-    if (comm_spec_.worker_id() == 0) {
+    if (frag_->fid() == frag_->fnum() - 1) {
       // write vertex number
-      auto st = writer.WriteVerticesNum(
-          frag_->GetVertexMap()->GetTotalNodesNum(main_label_id));
+      auto st = writer.WriteVerticesNum(label_id_to_vnum_.at(main_label_id));
       if (!st.ok()) {
         return Status::IOError(
             "GAR error: " + std::to_string(static_cast<int>(st.code())) + ", " +

@@ -370,6 +370,7 @@ void SendArrowBuffer(const std::shared_ptr<arrow::Buffer>& buffer,
     return;
   }
   size = buffer->size();
+  LOG(INFO) << "send to " << dst_worker_id << " size=" << size;
   MPI_Send(&size, 1, MPI_INT64_T, dst_worker_id, tag, comm);
   if (size != 0) {
     grape::sync_comm::send_buffer<uint8_t>(buffer->data(), size, dst_worker_id,
@@ -381,6 +382,7 @@ void RecvArrowBuffer(std::shared_ptr<arrow::Buffer>& buffer, int src_worker_id,
                      MPI_Comm comm, int tag) {
   int64_t size = -1;
   MPI_Recv(&size, 1, MPI_INT64_T, src_worker_id, tag, comm, MPI_STATUS_IGNORE);
+  LOG(INFO) << "recv from" << src_worker_id << " size=" << size;
   if (size == -1) {
     buffer = nullptr;
     return;

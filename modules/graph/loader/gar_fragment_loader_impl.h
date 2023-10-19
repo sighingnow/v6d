@@ -202,17 +202,29 @@ GARFragmentLoader<OID_T, VID_T, VERTEX_MAP_T>::distributeVertices() {
     }
     vertex_labels_.push_back(label);
     vertex_chunk_sizes_.push_back(vertex_info.GetChunkSize());
-    auto chunk_num = GraphArchive::utils::GetVertexChunkNum(
+    auto chunk_num_result = GraphArchive::utils::GetVertexChunkNum(
         graph_info_->GetPrefix(), vertex_info);
-    RETURN_GS_ERROR_IF_NOT_OK(chunk_num.status());
+    RETURN_GS_ERROR_IF_NOT_OK(chunk_num_result.status());
     // distribute the vertex chunks for fragments
-    int64_t bsize = chunk_num.value() / static_cast<int64_t>(comm_spec_.fnum());
-    vertex_chunk_begin_of_frag_[label].resize(comm_spec_.fnum() + 1, 0);
-    for (fid_t fid = 0; fid < comm_spec_.fnum(); ++fid) {
-      vertex_chunk_begin_of_frag_[label][fid] =
-          static_cast<gar_id_t>(fid) * bsize;
+    auto chunk_num = chunk_num_result.value();
+
+    if (chunk_num < static_cast<int64_t>(comm_spec_.fnum())) {
+      int64_t index = 0;
+      for (; index < chunk_num; ++index) {
+        vertex_chunk_begin_of_frag_[label][index] = index;
+      }
+      for (; index <= static_cast<int64_t>(comm_spec_.fnum()); ++index) {
+        vertex_chunk_begin_of_frag_[label][index] = chunk_num;
+      }
+    } else {
+      int64_t bsize = chunk_num / static_cast<int64_t>(comm_spec_.fnum());
+      vertex_chunk_begin_of_frag_[label].resize(comm_spec_.fnum() + 1, 0);
+      for (fid_t fid = 0; fid < comm_spec_.fnum(); ++fid) {
+        vertex_chunk_begin_of_frag_[label][fid] =
+            static_cast<gar_id_t>(fid) * bsize;
+      }
+      vertex_chunk_begin_of_frag_[label][comm_spec_.fnum()] = chunk_num;
     }
-    vertex_chunk_begin_of_frag_[label][comm_spec_.fnum()] = chunk_num.value();
   }
   vertex_label_num_ = vertex_labels_.size();
   for (size_t i = 0; i < vertex_labels_.size(); ++i) {
@@ -362,11 +374,22 @@ GARFragmentLoader<OID_T, VID_T, VERTEX_MAP_T>::loadVertexTableOfLabel(
     for (auto& t : threads) {
       t.join();
     }
-    auto pg_table = arrow::ConcatenateTables(vertex_chunk_tables);
-    if (!pg_table.status().ok()) {
-      RETURN_GS_ERROR(ErrorCode::kArrowError, pg_table.status().message());
+    std::shared_ptr<arrow::Table> pg_table;
+    if (vertex_chunk_num_of_fragment > 0) {
+      auto pg_table_ret = arrow::ConcatenateTables(vertex_chunk_tables);
+      if (!pg_table_ret.status().ok()) {
+        RETURN_GS_ERROR(ErrorCode::kArrowError, pg_table_ret.status().message());
+      }
+      pg_table = pg_table_ret.ValueOrDie();
+    } else {
+      auto schema = ConstructSchemaFromPropertyGroup(pg);
+      auto pg_table_ret = arrow::Table::MakeEmpty(schema);
+      if (!pg_table_ret.status().ok()) {
+        RETURN_GS_ERROR(ErrorCode::kArrowError, pg_table_ret.status().message());
+      }
+      pg_table = pg_table_ret.ValueOrDie();
     }
-    pg_tables.push_back(std::move(pg_table).ValueOrDie());
+    pg_tables.push_back(std::move(pg_table));
   }
   std::shared_ptr<arrow::Table> concat_table;
   VY_OK_OR_RAISE(ConcatenateTablesColumnWise(pg_tables, concat_table));
