@@ -258,8 +258,7 @@ boost::leaf::result<void>
 GARFragmentLoader<OID_T, VID_T, VERTEX_MAP_T>::constructVertexMap() {
   std::vector<std::vector<std::shared_ptr<arrow::ChunkedArray>>> oid_lists(
       vertex_label_num_);
-  ThreadGroup tg(comm_spec_);
-  auto shuffle_procedure = [&](const label_id_t label_id) -> Status {
+  auto shuffle_procedure = [&](const label_id_t label_id) -> boost::leaf::result<std::nullptr_t> {
     std::vector<std::shared_ptr<arrow::ChunkedArray>> shuffled_oid_array;
     auto& vertex_info =
         graph_info_->GetVertexInfo(vertex_labels_[label_id]).value();
@@ -279,7 +278,7 @@ GARFragmentLoader<OID_T, VID_T, VERTEX_MAP_T>::constructVertexMap() {
     if (primary_key.empty()) {
       std::string msg = "primary key is not found in " +
                         vertex_labels_[label_id] + " property groups";
-      return Status::Invalid(msg);
+      RETURN_GS_ERROR(ErrorCode::kInvalidValueError, msg);
     }
     auto local_oid_array =
         vertex_tables_[label_id]->GetColumnByName(primary_key);
@@ -287,25 +286,18 @@ GARFragmentLoader<OID_T, VID_T, VERTEX_MAP_T>::constructVertexMap() {
       std::string msg = "primary key column " + primary_key +
                         " is not found in " + vertex_labels_[label_id] +
                         " table";
-      return Status::Invalid(msg);
+      RETURN_GS_ERROR(ErrorCode::kInvalidValueError, msg);
     }
-    RETURN_ON_ERROR(FragmentAllGatherArray(comm_spec_, local_oid_array,
+    VY_OK_OR_RAISE(FragmentAllGatherArray(comm_spec_, local_oid_array,
                                            shuffled_oid_array));
     for (auto const& array : shuffled_oid_array) {
       oid_lists[label_id].emplace_back(
           std::dynamic_pointer_cast<arrow::ChunkedArray>(array));
     }
-    return Status::OK();
+    return nullptr;
   };
   for (label_id_t label_id = 0; label_id < vertex_label_num_; ++label_id) {
-    tg.AddTask(shuffle_procedure, label_id);
-  }
-  {
-    Status status;
-    for (auto const& s : tg.TakeResults()) {
-      status += s;
-    }
-    VY_OK_OR_RAISE(status);
+    BOOST_LEAF_CHECK(sync_gs_error(comm_spec_, shuffle_procedure, label_id));
   }
 
   BasicArrowVertexMapBuilder<internal_oid_t, vid_t> vm_builder(
